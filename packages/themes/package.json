@@ -1,0 +1,16 @@
+{
+  "name": "pi-themes",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Personal Pi TUI themes.",
+  "keywords": [
+    "pi-package"
+  ],
+  "license": "UNLICENSED",
+  "type": "module",
+  "pi": {
+    "themes": [
+      "./themes"
+    ]
+  }
+}

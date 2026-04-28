@@ -1,42 +1,50 @@
 # Pi Packages
 
-A personal package for pi extensions, skills, prompt templates, and themes.
+A container repository for personal, domain-based Pi packages. Each package under `packages/` is independently installable.
 
 ## Structure
 
 ```text
-extensions/  TypeScript pi extensions
-skills/      Agent Skills (`skills/<name>/SKILL.md`)
-prompts/     Prompt templates (`/filename` commands)
-themes/      TUI themes (`*.json`)
+packages/
+  inventory/                 Pi inventory/resource inspection commands
+  themes/                    Personal TUI themes
+  pi-packages-repo-tools/    Tools and skills for maintaining this repo
 ```
 
-This repo is itself a pi package via the `pi` manifest in `package.json`.
+The repository root is not itself a Pi package. Install the individual domain packages you want.
 
-## Install locally
+## Packages
 
-From anywhere, install this package into your global pi settings:
+### inventory
+
+Provides Pi inventory and resource inspection commands.
+
+Included resources:
+
+- Extension command: `/plugins`
+
+Install globally:
 
 ```bash
-pi install /path/to/pi-packages
+pi install /Users/aaron/src/pi-packages/packages/inventory
 ```
 
-Then restart pi or run `/reload` in an existing session.
+### themes
 
-To use it only for one pi run:
+Provides personal TUI themes.
+
+Included resources:
+
+- `custom-dark`
+- `nordic`
+
+Install globally:
 
 ```bash
-pi -e /path/to/pi-packages
+pi install /Users/aaron/src/pi-packages/packages/themes
 ```
 
-## Included starters
-
-- Extension command: `/pi-packages-info`
-- Prompt templates: `/review`, `/finish`
-- Skills: `repo-maintenance`, `package-creator`
-- Theme: `custom-dark`
-
-Select the theme in `/settings` or add this to `~/.pi/agent/settings.json`:
+Select a theme in `/settings` or add one to `~/.pi/agent/settings.json`:
 
 ```json
 {
@@ -44,44 +52,56 @@ Select the theme in `/settings` or add this to `~/.pi/agent/settings.json`:
 }
 ```
 
-## Adding more
+### pi-packages-repo-tools
 
-### Extension
+Provides tools specifically for maintaining this `pi-packages` repository.
 
-Add `extensions/my-extension.ts`:
+Included resources:
 
-```ts
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+- Extension command: `/pi-packages-info`
+- Skills: `repo-maintenance`, `package-creator`
 
-export default function (pi: ExtensionAPI) {
-  pi.registerCommand("hello", {
-    description: "Say hello",
-    handler: async (_args, ctx) => ctx.ui.notify("Hello!", "info"),
-  });
+This package is installed by the repo-local `.pi/settings.json`. Project package paths are resolved from the `.pi/` directory, so the path uses `../packages/...`:
+
+```json
+{
+  "quietStartup": true,
+  "packages": ["../packages/pi-packages-repo-tools"]
 }
 ```
 
+## Try without installing
+
+Run Pi with a package for a single session:
+
+```bash
+pi -e /Users/aaron/src/pi-packages/packages/inventory
+pi -e /Users/aaron/src/pi-packages/packages/themes
+pi -e /Users/aaron/src/pi-packages/packages/pi-packages-repo-tools
+```
+
+## Adding more
+
+Add new resources to the package for their domain. If a new domain emerges, create a new directory under `packages/<domain>/` with its own `package.json` and `pi` manifest.
+
+### Extension
+
+Add `packages/<domain>/extensions/my-extension.ts` and include `"./extensions"` in that package's `pi.extensions` manifest.
+
 ### Prompt template
 
-Add `prompts/name.md`; it becomes `/name`.
+Add `packages/<domain>/prompts/name.md` and include `"./prompts"` in that package's `pi.prompts` manifest.
 
 ### Skill
 
-Add `skills/my-skill/SKILL.md` with frontmatter:
-
-```md
----
-name: my-skill
-description: What this skill does and when to use it.
----
-```
+Add `packages/<domain>/skills/my-skill/SKILL.md` and include `"./skills"` in that package's `pi.skills` manifest.
 
 ### Theme
 
-Add a complete theme JSON file to `themes/`. Theme names must be unique.
+Add `packages/<domain>/themes/name.json` and include `"./themes"` in that package's `pi.themes` manifest.
 
 ## Notes
 
-- Packages installed from a local path are loaded in place, so edits here are picked up after `/reload`.
-- Keep pi core packages in `peerDependencies` if imported by extensions.
-- Put normal runtime npm packages in `dependencies`.
+- Packages installed from a local path are loaded in place, so edits are picked up after `/reload`.
+- Keep Pi core packages in package-level `peerDependencies` if imported by extensions.
+- Put normal runtime npm packages in the package-level `dependencies`.

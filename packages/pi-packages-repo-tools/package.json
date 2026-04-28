@@ -1,0 +1,22 @@
+{
+  "name": "pi-packages-repo-tools",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pi tools and skills for maintaining this pi-packages repository.",
+  "keywords": [
+    "pi-package"
+  ],
+  "license": "UNLICENSED",
+  "type": "module",
+  "pi": {
+    "extensions": [
+      "./extensions"
+    ],
+    "skills": [
+      "./skills"
+    ]
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": "*"
+  }
+}
