@@ -1,0 +1,32 @@
+{
+  "name": "pi-packages",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Personal pi extensions, skills, prompt templates, and themes.",
+  "keywords": [
+    "pi-package"
+  ],
+  "license": "UNLICENSED",
+  "type": "module",
+  "pi": {
+    "extensions": [
+      "./extensions"
+    ],
+    "skills": [
+      "./skills"
+    ],
+    "prompts": [
+      "./prompts"
+    ],
+    "themes": [
+      "./themes"
+    ]
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": "*",
+    "@mariozechner/pi-ai": "*",
+    "@mariozechner/pi-agent-core": "*",
+    "@mariozechner/pi-tui": "*",
+    "typebox": "*"
+  }
+}

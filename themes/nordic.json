@@ -1,0 +1,114 @@
+{
+  "$schema": "https://raw.githubusercontent.com/badlogic/pi-mono/main/packages/coding-agent/src/modes/interactive/theme/theme-schema.json",
+  "name": "nordic",
+  "vars": {
+    "black0": "#191D24",
+    "black1": "#1E222A",
+    "black2": "#222630",
+
+    "bg": "#242933",
+    "gray1": "#2E3440",
+    "gray2": "#3B4252",
+    "gray3": "#434C5E",
+    "gray4": "#4C566A",
+    "gray5": "#60728A",
+
+    "fg": "#C0C8D8",
+    "fgBright": "#D8DEE9",
+    "white2": "#E5E9F0",
+    "white3": "#ECEFF4",
+
+    "blue0": "#5E81AC",
+    "blue1": "#81A1C1",
+    "blue2": "#88C0D0",
+
+    "cyan": "#8FBCBB",
+    "cyanBright": "#9FC6C5",
+    "cyanDim": "#80B3B2",
+
+    "red": "#BF616A",
+    "redBright": "#C5727A",
+    "redDim": "#B74E58",
+
+    "orange": "#D08770",
+    "orangeBright": "#D79784",
+    "orangeDim": "#CB775D",
+
+    "yellow": "#EBCB8B",
+    "yellowBright": "#EFD49F",
+    "yellowDim": "#E7C173",
+
+    "green": "#A3BE8C",
+    "greenBright": "#B1C89D",
+    "greenDim": "#97B67C",
+
+    "magenta": "#B48EAD",
+    "magentaBright": "#BE9DB8",
+    "magentaDim": "#A97EA1"
+  },
+  "colors": {
+    "accent": "cyan",
+    "border": "black0",
+    "borderAccent": "cyan",
+    "borderMuted": "gray3",
+
+    "success": "green",
+    "error": "redBright",
+    "warning": "yellow",
+    "muted": "gray5",
+    "dim": "gray4",
+    "text": "fg",
+    "thinkingText": "fg",
+
+    "selectedBg": "gray2",
+    "userMessageBg": "black1",
+    "userMessageText": "fgBright",
+    "customMessageBg": "black2",
+    "customMessageText": "fg",
+    "customMessageLabel": "cyan",
+    "toolPendingBg": "black1",
+    "toolSuccessBg": "black2",
+    "toolErrorBg": "black2",
+    "toolTitle": "blue2",
+    "toolOutput": "fg",
+
+    "mdHeading": "blue2",
+    "mdLink": "cyan",
+    "mdLinkUrl": "blue1",
+    "mdCode": "green",
+    "mdCodeBlock": "fg",
+    "mdCodeBlockBorder": "gray3",
+    "mdQuote": "gray5",
+    "mdQuoteBorder": "gray3",
+    "mdHr": "gray3",
+    "mdListBullet": "cyan",
+
+    "toolDiffAdded": "green",
+    "toolDiffRemoved": "red",
+    "toolDiffContext": "gray5",
+
+    "syntaxComment": "gray4",
+    "syntaxKeyword": "magenta",
+    "syntaxFunction": "blue2",
+    "syntaxVariable": "fg",
+    "syntaxString": "green",
+    "syntaxNumber": "orange",
+    "syntaxType": "yellow",
+    "syntaxOperator": "cyan",
+    "syntaxPunctuation": "gray5",
+
+    "thinkingOff": "gray3",
+    "thinkingMinimal": "gray5",
+    "thinkingLow": "blue0",
+    "thinkingMedium": "cyan",
+    "thinkingHigh": "magenta",
+    "thinkingXhigh": "redBright",
+
+    "bashMode": "orange"
+  },
+  "export": {
+    "pageBg": "#242933",
+    "cardBg": "#1E222A",
+    "infoBg": "#222630"
+  }
+}
