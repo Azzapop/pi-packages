@@ -60,10 +60,11 @@ Icon mapping:
    - Show current context usage as used/max tokens and/or percentage when available from Pi session/model data.
    - If max context is unavailable, show used tokens only.
 3. **Session-period usage**
-   - Use `pi-usage-bars` as the real-time source for provider usage windows.
-   - Show active-provider session-window usage percentage and reset countdown, e.g. `Claude S 63% ⟳ 2h 10m`.
+   - Use `pi-usage-bars` as the real-time source for provider usage windows and quota utilization.
+   - Show active-provider session-window usage percentage and reset countdown, e.g. `Claude S 63% 󰑓 2h 10m`.
    - Show weekly usage only if there is enough footer width.
-   - If `pi-usage-bars` data is not available yet, show a short loading/unavailable state or hide the usage segment on narrow terminals.
+   - Treat this as provider window/quota utilization, not raw cost. Token-based providers are displayed only when `pi-usage-bars` can normalize their token limits into percentage windows.
+   - If the active provider is unmetered, unsupported, has no usage endpoint, or `pi-usage-bars` data is not available yet, hide the usage segment on narrow terminals; otherwise show a short loading/unavailable state.
 4. **Model**
    - Show the active model id, shortened when needed.
 5. **Git branch**
@@ -137,7 +138,7 @@ Pi session_start
 - Missing model id: show `model: unknown` or hide model segment if width is tight.
 - Missing branch: hide branch segment.
 - Missing context max: show used tokens only.
-- Missing `pi-usage-bars` data: hide usage on narrow terminals; otherwise show `usage: loading…` or `usage: unavailable`.
+- Missing `pi-usage-bars` data, unsupported provider, or unmetered provider: hide usage on narrow terminals; otherwise show `usage: loading…` or `usage: unavailable`.
 - Narrow terminal: preserve title and context first; drop statuses, branch, model, then usage details if required.
 - Unsupported Nerd Font glyphs: user can switch `iconStyle` to `unicode` or `none`.
 - No manual or available auto title: show `Pi session`.
@@ -153,7 +154,7 @@ Manual verification:
 5. Run `/style-title --clear` and confirm it returns to automatic/fallback title.
 6. Resize the terminal and confirm the footer never exceeds width.
 7. Confirm session-period usage appears when `pi-usage-bars` data is available.
-8. Confirm unavailable `pi-usage-bars` data is omitted or shown as loading/unavailable gracefully.
+8. Confirm unavailable, unsupported, or unmetered usage data is omitted or shown as loading/unavailable gracefully.
 
 Code checks:
 
