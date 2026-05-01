@@ -26,7 +26,7 @@ On each Pi session start, the extension installs:
 Footer target layout:
 
 ```text
-<title> │ ctx: 42% ▰▰▰▱▱ │ usage: 18.2k tok │ model: claude... │ branch: main
+<title> │ ctx: 42% ▰▰▰▱▱ │ Claude S 63% ⟳ 2h │ model: claude... │ branch: main
 ```
 
 The footer should degrade for narrow terminals by shortening labels, truncating long values, and hiding lower-priority sections before exceeding the render width.
@@ -42,9 +42,11 @@ The footer displays, in priority order:
 2. **Context fullness**
    - Show current context usage as used/max tokens and/or percentage when available from Pi session/model data.
    - If max context is unavailable, show used tokens only.
-3. **Usage**
-   - Show all directly available usage data from Pi APIs, such as session token counts or estimated costs.
-   - Provider quota/billing is best-effort only. If Pi/provider APIs do not expose it, omit it rather than inventing values.
+3. **Session-period usage**
+   - Use `pi-usage-bars` as the real-time source for provider usage windows.
+   - Show active-provider session-window usage percentage and reset countdown, e.g. `Claude S 63% ⟳ 2h 10m`.
+   - Show weekly usage only if there is enough footer width.
+   - If `pi-usage-bars` data is not available yet, show a short loading/unavailable state or hide the usage segment on narrow terminals.
 4. **Model**
    - Show the active model id, shortened when needed.
 5. **Git branch**
@@ -88,6 +90,7 @@ claude-style extension
    ├─ buildFooterSegments(...)
    ├─ fitSegmentsToWidth(...)
    ├─ formatTokens(...)
+   ├─ formatUsagePeriod(...)
    ├─ formatPercentBar(...)
    └─ shortenModel(...)
 ```
@@ -100,6 +103,7 @@ The implementation should keep formatting helpers small and local to the extensi
 Pi session_start
   → extension captures ctx
   → footer renderer reads live footer/session/model data
+  → extension listens for pi-usage-bars usage updates when available
   → renderer builds prioritized segments
   → renderer fits segments to terminal width
   → TUI renders one footer line
@@ -115,7 +119,7 @@ Pi session_start
 - Missing model id: show `model: unknown` or hide model segment if width is tight.
 - Missing branch: hide branch segment.
 - Missing context max: show used tokens only.
-- Missing usage/quota data: hide unavailable usage fields.
+- Missing `pi-usage-bars` data: hide usage on narrow terminals; otherwise show `usage: loading…` or `usage: unavailable`.
 - Narrow terminal: preserve title and context first; drop statuses, branch, model, then usage details if required.
 - No manual or available auto title: show `Pi session`.
 
@@ -129,7 +133,8 @@ Manual verification:
 4. Run `/style-title Test title` and confirm the footer title changes.
 5. Run `/style-title --clear` and confirm it returns to automatic/fallback title.
 6. Resize the terminal and confirm the footer never exceeds width.
-7. Confirm unavailable provider quota data is omitted gracefully.
+7. Confirm session-period usage appears when `pi-usage-bars` data is available.
+8. Confirm unavailable `pi-usage-bars` data is omitted or shown as loading/unavailable gracefully.
 
 Code checks:
 
@@ -142,4 +147,4 @@ Code checks:
 - Creating a new color theme.
 - Replacing the editor component.
 - Adding persistent widgets above/below the editor.
-- Implementing provider-specific billing API clients unless a Pi API already exposes quota data.
+- Reimplementing provider-specific usage API clients. The package should rely on `pi-usage-bars` data rather than duplicating its Claude/Codex/Gemini/Z.AI request logic.
