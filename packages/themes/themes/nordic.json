@@ -6,7 +6,8 @@
     "black1": "#1E222A",
     "black2": "#222630",
 
-    "bg": "#242933",
+    "bg": "#1E222A",
+    "bgFloat": "#242933",
     "gray1": "#2E3440",
     "gray2": "#3B4252",
     "gray3": "#434C5E",
@@ -14,6 +15,7 @@
     "gray5": "#60728A",
 
     "fg": "#C0C8D8",
+    "commentFg": "#8d9cb0",
     "fgBright": "#D8DEE9",
     "white2": "#E5E9F0",
     "white3": "#ECEFF4",
@@ -61,7 +63,7 @@
     "thinkingText": "fg",
 
     "selectedBg": "gray2",
-    "userMessageBg": "black1",
+    "userMessageBg": "bgFloat",
     "userMessageText": "fgBright",
     "customMessageBg": "black2",
     "customMessageText": "fg",
@@ -87,15 +89,15 @@
     "toolDiffRemoved": "red",
     "toolDiffContext": "gray5",
 
-    "syntaxComment": "gray4",
+    "syntaxComment": "commentFg",
     "syntaxKeyword": "magenta",
     "syntaxFunction": "blue2",
-    "syntaxVariable": "fg",
-    "syntaxString": "green",
+    "syntaxVariable": "orange",
+    "syntaxString": "magentaBright",
     "syntaxNumber": "orange",
     "syntaxType": "yellow",
     "syntaxOperator": "cyan",
-    "syntaxPunctuation": "gray5",
+    "syntaxPunctuation": "fg",
 
     "thinkingOff": "gray3",
     "thinkingMinimal": "gray5",
@@ -107,8 +109,8 @@
     "bashMode": "orange"
   },
   "export": {
-    "pageBg": "#242933",
-    "cardBg": "#1E222A",
+    "pageBg": "#1E222A",
+    "cardBg": "#242933",
     "infoBg": "#222630"
   }
 }
