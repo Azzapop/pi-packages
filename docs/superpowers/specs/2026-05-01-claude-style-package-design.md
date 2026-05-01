@@ -23,17 +23,34 @@ On each Pi session start, the extension installs:
 2. A subtle pulse working indicator.
 3. Commands for controlling the footer title.
 
-Footer target layout:
+Footer target layout with the default Nerd Font icon style:
 
 ```text
-<title> │ ctx: 42% ▰▰▰▱▱ │ Claude S 63% ⟳ 2h │ model: claude... │ branch: main
+<title> │ 󰍛 42% ▰▰▰▱▱ │ 󰔟 Claude S 63% 󰑓 2h │ 󰚩 claude... │  main
 ```
 
-The footer should degrade for narrow terminals by shortening labels, truncating long values, and hiding lower-priority sections before exceeding the render width.
+The title intentionally has no icon so the current-change summary stays readable. The footer should degrade for narrow terminals by shortening labels, truncating long values, and hiding lower-priority sections before exceeding the render width.
 
 ## Footer Content
 
 The footer displays, in priority order:
+
+The extension supports configurable footer icon styles:
+
+- `nerd` default: uses Nerd Font glyphs for a polished terminal look.
+- `unicode`: uses broadly-supported Unicode fallback glyphs.
+- `none`: uses text labels only.
+
+Icon mapping:
+
+| Section | Nerd Font | Unicode fallback | None fallback |
+|---|---:|---:|---|
+| Title | none | none | none |
+| Context fullness | `󰍛` | `◔` | `ctx` |
+| Session-period usage | `󰔟` | `◷` | `usage` |
+| Reset countdown | `󰑓` | `↻` | `reset` |
+| Model | `󰚩` | `◇` | `model` |
+| Git branch | `` | `⎇` | `git` |
 
 1. **Current title**
    - Manual override if set.
@@ -87,6 +104,7 @@ claude-style extension
 ├─ command registration
 │  └─ style-title
 └─ formatting helpers
+   ├─ getIcons(iconStyle)
    ├─ buildFooterSegments(...)
    ├─ fitSegmentsToWidth(...)
    ├─ formatTokens(...)
@@ -121,6 +139,7 @@ Pi session_start
 - Missing context max: show used tokens only.
 - Missing `pi-usage-bars` data: hide usage on narrow terminals; otherwise show `usage: loading…` or `usage: unavailable`.
 - Narrow terminal: preserve title and context first; drop statuses, branch, model, then usage details if required.
+- Unsupported Nerd Font glyphs: user can switch `iconStyle` to `unicode` or `none`.
 - No manual or available auto title: show `Pi session`.
 
 ## Testing and Verification
@@ -139,6 +158,7 @@ Manual verification:
 Code checks:
 
 - TypeScript should type-check under the package's dependency assumptions.
+- `iconStyle` should support `nerd`, `unicode`, and `none` without changing footer layout logic.
 - The package `package.json` should include `pi-package` keyword and a `pi.extensions` entry.
 - Pi core imports should be listed as peer dependencies, not bundled dependencies.
 
