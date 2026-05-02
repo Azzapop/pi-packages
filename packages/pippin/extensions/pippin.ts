@@ -158,10 +158,10 @@ async function handleList(pi: ExtensionAPI, ctx: ExtensionCommandContext) {
   const lines = packages.map((pkg) => {
     const icon = statusIcon(pkg.status);
     const color = statusColor(pkg.status);
-    return `${theme.fg(color, icon)} ${theme.fg(color, pkg.name)}  ${theme.fg("dim", pkg.scope)}  ${theme.fg("muted", pkg.resolvedPath)}`;
+    return `${theme.fg(color, icon)} ${theme.fg(color, pkg.name)}  ${theme.fg("muted", pkg.scope)}  ${theme.fg("text", pkg.resolvedPath)}`;
   });
 
-  const header = theme.fg("accent", theme.bold("Pippin")) + theme.fg("dim", `  ${packages.length} packages`);
+  const header = theme.fg("accent", theme.bold("Pippin")) + theme.fg("muted", `  ${packages.length} packages`);
   const content = [header, "", ...lines].join("\n");
 
   pi.sendMessage({

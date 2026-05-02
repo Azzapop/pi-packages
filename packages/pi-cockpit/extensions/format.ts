@@ -4,6 +4,14 @@ export function sanitizeOneLine(text: string): string {
   return text.replace(/[\r\n\t]/g, " ").replace(/ +/g, " ").trim();
 }
 
+export function kebabCaseTitle(text: string): string {
+  return sanitizeOneLine(text)
+    .toLowerCase()
+    .replace(/[`'"“”‘’]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
 export function formatTokens(count: number): string {
   if (!Number.isFinite(count) || count <= 0) return "0";
   if (count < 1000) return Math.round(count).toString();

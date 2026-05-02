@@ -57,8 +57,8 @@
     "success": "green",
     "error": "redBright",
     "warning": "yellow",
-    "muted": "gray5",
-    "dim": "gray4",
+    "muted": "commentFg",
+    "dim": "gray5",
     "text": "fg",
     "thinkingText": "fg",
 

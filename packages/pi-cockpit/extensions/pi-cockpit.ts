@@ -14,6 +14,7 @@ import {
   formatCost,
   formatModelName,
   formatTokens,
+  kebabCaseTitle,
   percentBar,
   providerLabel,
   sanitizeOneLine,
@@ -70,11 +71,13 @@ function buildTitleLine(width: number, title: string, theme: Theme, borderColor:
   if (!rawTitle) return borderColor("─".repeat(width));
 
   const cleanTitle = truncateToWidth(rawTitle, Math.max(1, width - 4), "…");
-  const prefix = "─ ";
-  const suffixPad = " ";
-  const used = visibleWidth(prefix) + visibleWidth(cleanTitle) + visibleWidth(suffixPad);
-  const tail = "─".repeat(Math.max(0, width - used));
-  return borderColor(prefix) + theme.fg("accent", theme.bold(cleanTitle)) + borderColor(suffixPad + tail);
+  const titlePrefix = " ";
+  const paddedTitle = ` ${cleanTitle} `;
+  const titleSuffix = " ─";
+  const used = visibleWidth(titlePrefix) + visibleWidth(paddedTitle) + visibleWidth(titleSuffix);
+  const leadingRule = "─".repeat(Math.max(0, width - used));
+  const titleText = theme.inverse(theme.fg("accent", theme.bold(paddedTitle)));
+  return borderColor(leadingRule + titlePrefix) + titleText + borderColor(titleSuffix);
 }
 
 function fitSegments(segments: string[], width: number): string {
@@ -204,14 +207,18 @@ class CockpitEditor extends CustomEditor {
     private getTitle: () => string,
     private getThinkingLevel: () => ThinkingLevel | string | undefined,
   ) {
-    super(tui, editorTheme, keybindings, { paddingX: 1 });
-    this.setPaddingX(1);
+    super(tui, editorTheme, keybindings, { paddingX: 2 });
+  }
+
+  override setPaddingX(_padding: number) {
+    // Always enforce our padding, ignore core overrides
+    super.setPaddingX(2);
   }
 
   private currentBorderColor(): (s: string) => string {
     const text = this.getText().trimStart();
     if (text.startsWith("!")) return this.appTheme.getBashModeBorderColor();
-    return this.appTheme.getThinkingBorderColor("minimal");
+    return (s: string) => this.appTheme.fg("muted", s);
   }
 
   render(width: number): string[] {
@@ -307,7 +314,7 @@ export default function (pi: ExtensionAPI) {
     currentCtx = ctx;
   });
 
-  pi.registerCommand("style-title", {
+  pi.registerCommand("session-title", {
     description: "Set or clear the Pi Cockpit editor title",
     handler: async (args, ctx) => {
       const value = args.trim();
@@ -324,7 +331,7 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
-      state.manualTitle = truncateToWidth(sanitizeOneLine(value), 80, "…");
+      state.manualTitle = truncateToWidth(kebabCaseTitle(value), 80, "…");
       state.titleCleared = false;
       ctx.ui.notify("Pi Cockpit title updated", "info");
     },
