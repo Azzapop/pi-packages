@@ -1,0 +1,26 @@
+{
+  "name": "pi-cockpit",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cockpit-style footer, editor title bar, and working indicator for Pi.",
+  "keywords": [
+    "pi-package"
+  ],
+  "license": "UNLICENSED",
+  "type": "module",
+  "dependencies": {
+    "pi-usage-bars": "^0.2.1"
+  },
+  "pi": {
+    "extensions": [
+      "./extensions/pi-cockpit.ts",
+      "./node_modules/pi-usage-bars/extensions/usage-bars/index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": "*",
+    "@mariozechner/pi-agent-core": "*",
+    "@mariozechner/pi-ai": "*",
+    "@mariozechner/pi-tui": "*"
+  }
+}

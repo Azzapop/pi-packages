@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -r \"interface Component\\\\|interface.*Footer\\\\|render.*width\\\\|Component\\\\|render\\\\\\(\" /Users/Aaron/src/pi-packages/packages --include=*.ts)",
+      "Bash(grep -r \"import.*Component\\\\|from.*pi-tui\\\\|from.*pi-coding-agent\" /Users/aaron/src/pi-packages/packages --include=*.ts -A 3)",
+      "mcp__plugin_context-mode_context-mode__execute",
+      "Bash(grep -r \"clear\\\\|context\\\\|reset\\\\|conversation\" /Users/aaron/src/pi-packages --include=*.ts --include=*.js --include=*.md)",
+      "mcp__plugin_context-mode_context-mode__execute_file",
+      "Bash(find /Users/aaron/src/pi-packages/node_modules/@mariozechner -type f -name *.d.ts)",
+      "Bash(find /Users/aaron/src/pi-packages -name *.d.ts -o -name index.ts)",
+      "Bash(grep -r registerCommand /Users/aaron/src/pi-packages --include=*.ts -A 3)",
+      "Bash(grep -r \"sessionManager\\\\|getContextUsage\" /Users/aaron/src/pi-packages --include=*.ts -B 2 -A 2)",
+      "Bash(grep -r \"pi\\\\.on\\\\|pi\\\\.registerCommand\" /Users/aaron/src/pi-packages --include=*.ts)",
+      "Bash(grep -r \"/clear\\\\|/reset\\\\|/new\" /Users/aaron/src/pi-packages --include=*.ts)",
+      "Bash(grep -r \"pi\\\\.getFlag\\\\|pi\\\\.setFlag\\\\|pi\\\\.events\\\\|pi\\\\.getThinkingLevel\\\\|pi\\\\.getCommands\\\\|pi\\\\.getAllTools\\\\|pi\\\\.getActiveTools\" /Users/aaron/src/pi-packages/packages --include=*.ts)",
+      "Bash(grep -r \"ctx\\\\.\\\\|getContextUsage\\\\|sessionManager\" /Users/aaron/src/pi-packages/packages --include=*.ts)",
+      "Bash(grep -r pi.[a-zA-Z_] /Users/aaron/src/pi-packages/packages --include=*.ts)",
+      "Bash(find /Users/aaron/src/pi-packages -type f \\\\\\(-name *.d.ts -o -name index.d.ts \\\\\\) -o -name types.ts)",
+      "Bash(grep -r \"harness\\\\|Harness\\\\|HARNESS\" /Users/aaron/src/pi-packages --include=*.ts --include=*.md)",
+      "Bash(grep -r \"clear\\\\|Clear\\\\|CLEAR\" /Users/aaron/src/pi-packages --include=*.ts --include=*.md --include=*.json)"
+    ]
+  }
+}

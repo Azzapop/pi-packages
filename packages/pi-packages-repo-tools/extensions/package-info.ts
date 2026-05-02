@@ -1,5 +1,6 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 
+// This is a test
 export default function (pi: ExtensionAPI) {
   pi.registerCommand("pi-packages-info", {
     description: "Show information about the local pi package repo",

@@ -8,6 +8,7 @@ A container repository for personal, domain-based Pi packages. Each package unde
 packages/
   inventory/                 Pi inventory/resource inspection commands
   themes/                    Personal TUI themes
+  pi-cockpit/                Cockpit-style Pi footer/editor UI
   pi-packages-repo-tools/    Tools and skills for maintaining this repo
 ```
 
@@ -52,6 +53,41 @@ Select a theme in `/settings` or add one to `~/.pi/agent/settings.json`:
 }
 ```
 
+### pi-cockpit
+
+Provides a cockpit-style Pi TUI skin.
+
+Included resources:
+
+- Extension command: `/style-title`
+- Custom footer with context, provider usage, model/effort, branch, and low-priority session totals
+- Custom editor title bar and mode-colored editor border
+- Subtle pulse working indicator
+- Bundled `pi-usage-bars` extension for provider usage windows
+
+Install globally:
+
+```bash
+cd /Users/aaron/src/pi-packages/packages/pi-cockpit
+npm install
+pi install /Users/aaron/src/pi-packages/packages/pi-cockpit
+```
+
+Try for one session:
+
+```bash
+cd /Users/aaron/src/pi-packages/packages/pi-cockpit
+npm install
+pi -e /Users/aaron/src/pi-packages/packages/pi-cockpit
+```
+
+Use Nerd Font icons by default, or switch fallbacks:
+
+```bash
+pi -e /Users/aaron/src/pi-packages/packages/pi-cockpit --cockpit-icons unicode
+pi -e /Users/aaron/src/pi-packages/packages/pi-cockpit --cockpit-icons none
+```
+
 ### pi-packages-repo-tools
 
 Provides tools specifically for maintaining this `pi-packages` repository.
@@ -77,6 +113,7 @@ Run Pi with a package for a single session:
 ```bash
 pi -e /Users/aaron/src/pi-packages/packages/inventory
 pi -e /Users/aaron/src/pi-packages/packages/themes
+pi -e /Users/aaron/src/pi-packages/packages/pi-cockpit
 pi -e /Users/aaron/src/pi-packages/packages/pi-packages-repo-tools
 ```
 
