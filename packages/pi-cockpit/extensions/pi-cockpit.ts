@@ -25,6 +25,8 @@ import {
 
 type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
 
+const THINKING_LEVELS: ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh"];
+
 type UsageUpdate = {
   provider?: string;
   label?: string;
@@ -49,7 +51,6 @@ type CockpitMode = {
   order?: number;
   onEnter?: (ctx: ExtensionContext) => void | Promise<void>;
   onExit?: (ctx: ExtensionContext) => void | Promise<void>;
-  getTitlePrefix?: (ctx: ExtensionContext) => string | undefined;
   getFooterSegments?: (ctx: ExtensionContext) => string[];
   getStatusText?: (ctx: ExtensionContext) => string | undefined;
   onInput?: (event: any, ctx: ExtensionContext) => any | Promise<any>;
@@ -378,15 +379,6 @@ export default function (pi: ExtensionAPI) {
     await switchMode(ctx, next.id);
   }
 
-  function buildCockpitTitle(ctx?: ExtensionContext): string {
-    const title = getTitle(state);
-    const mode = getActiveMode();
-    const prefix = ctx ? mode.getTitlePrefix?.(ctx) : undefined;
-    const modePrefix = sanitizeOneLine(prefix || mode.label.toLowerCase());
-    if (mode.id === "edit") return title;
-    return title ? `${modePrefix} / ${title}` : modePrefix;
-  }
-
   async function restoreModeFromSession(ctx: ExtensionContext): Promise<void> {
     const entries = ctx.sessionManager.getEntries();
     const modeEntry = entries
@@ -425,7 +417,7 @@ export default function (pi: ExtensionAPI) {
     );
 
     ctx.ui.setEditorComponent((tui: TUI, editorTheme: EditorTheme, keybindings: KeybindingsManager) =>
-      new CockpitEditor(tui, editorTheme, keybindings, ctx.ui.theme, () => buildCockpitTitle(ctx), getThinkingLevel, getActiveMode),
+      new CockpitEditor(tui, editorTheme, keybindings, ctx.ui.theme, () => getTitle(state), getThinkingLevel, getActiveMode),
     );
 
     updateModeUi(ctx);
@@ -565,6 +557,41 @@ export default function (pi: ExtensionAPI) {
       }
 
       await switchMode(ctx, value);
+    },
+  });
+
+  pi.registerCommand("effort", {
+    description: "Show, cycle, or set model effort/thinking level",
+    getArgumentCompletions: (prefix: string) => {
+      const values = ["status", "next", ...THINKING_LEVELS];
+      return values
+        .filter((value) => value.startsWith(prefix.trim()))
+        .map((value) => ({ value, label: value }));
+    },
+    handler: async (args, ctx) => {
+      const value = args.trim().toLowerCase();
+      const current = (pi.getThinkingLevel?.() ?? "off") as ThinkingLevel;
+
+      if (!value || value === "status") {
+        ctx.ui.notify(`Effort: ${current}`, "info");
+        return;
+      }
+
+      if (value === "next") {
+        const index = THINKING_LEVELS.indexOf(current);
+        const next = THINKING_LEVELS[(index + 1) % THINKING_LEVELS.length] ?? "off";
+        pi.setThinkingLevel?.(next);
+        ctx.ui.notify(`Effort: ${next}`, "info");
+        return;
+      }
+
+      if (!THINKING_LEVELS.includes(value as ThinkingLevel)) {
+        ctx.ui.notify(`Unknown effort: ${value}. Use: status, next, ${THINKING_LEVELS.join(", ")}`, "warning");
+        return;
+      }
+
+      pi.setThinkingLevel?.(value as ThinkingLevel);
+      ctx.ui.notify(`Effort: ${value}`, "info");
     },
   });
 

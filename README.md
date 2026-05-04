@@ -10,6 +10,7 @@ packages/
   themes/                    Personal TUI themes
   pi-cockpit/                Cockpit-style Pi footer/editor UI
   pi-plan/                   Reusable planning skills, prompts, and helpers
+  pi-mode-plan/              Cockpit plan mode integration
   pi-packages-repo-tools/    Tools and skills for maintaining this repo
 ```
 
@@ -60,7 +61,8 @@ Provides a cockpit-style Pi TUI skin.
 
 Included resources:
 
-- Extension command: `/style-title`
+- Extension commands: `/session-title`, `/effort`
+- `Shift+Tab` Cockpit mode cycling; `Ctrl+Shift+E` model effort cycling
 - Custom footer with context, provider usage, model/effort, branch, and low-priority session totals
 - Custom editor title bar and mode-colored editor border
 - Subtle pulse working indicator
@@ -115,6 +117,23 @@ Install globally:
 pi install /Users/aaron/src/pi-packages/packages/pi-plan
 ```
 
+### pi-mode-plan
+
+Provides Cockpit integration for plan mode.
+
+Included resources:
+
+- Cockpit mode: `plan` via `/mode plan`
+- Extension commands: `/plan-approve`, `/plan-cancel`
+- Plan-mode tool restrictions that block edits and unsafe shell commands before approval
+- Approval flow that starts implementation in a new context seeded with the approved plan
+
+Install globally:
+
+```bash
+pi install /Users/aaron/src/pi-packages/packages/pi-mode-plan
+```
+
 ### pi-packages-repo-tools
 
 Provides tools specifically for maintaining this `pi-packages` repository.
@@ -142,6 +161,7 @@ pi -e /Users/aaron/src/pi-packages/packages/inventory
 pi -e /Users/aaron/src/pi-packages/packages/themes
 pi -e /Users/aaron/src/pi-packages/packages/pi-cockpit
 pi -e /Users/aaron/src/pi-packages/packages/pi-plan
+pi -e /Users/aaron/src/pi-packages/packages/pi-mode-plan
 pi -e /Users/aaron/src/pi-packages/packages/pi-packages-repo-tools
 ```
 

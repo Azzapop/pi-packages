@@ -27,6 +27,7 @@ The package registers a `plan` mode with Cockpit via `pi.events`.
 - Block unsafe bash commands while planning.
 - Require explicit plan approval before implementation.
 - Clear or reset implementation context only after approval.
+- Auto-enter plan mode when planning intent phrases are detected in normal user input.
 - Route plan-mode agent instructions through the Cockpit mode callback.
 - Optionally call or reference the reusable `pi-plan` skills/prompts.
 - Parse numbered `Plan:` output into todos.
@@ -59,6 +60,25 @@ Note: Cockpit mode labels intentionally do not need icons. Cockpit renders mode 
 
 ## Plan Mode Behavior
 
+### Auto-Enter Triggers
+
+Plan mode should become easier to use by detecting planning intent in normal prompts. If the user is not already in plan mode and sends a prompt containing phrases like these, the plugin should enter plan mode before the agent starts:
+
+- "help me plan"
+- "let's plan"
+- "make a plan"
+- "draft a plan"
+- "implementation plan"
+- "think this through"
+- "before implementing"
+- "don't edit"
+- "read-only"
+- "plan workflow"
+- "approval flow"
+- prompts containing both "plan" and "approve"/"approval"
+
+`/plan` should also enter plan mode before expanding the reusable prompt template. Other slash commands, bash commands, extension-injected messages, and already-approved execution should not auto-enter plan mode.
+
 ### On Enter
 
 - Snapshot current active tools.
@@ -68,17 +88,21 @@ Note: Cockpit mode labels intentionally do not need icons. Cockpit renders mode 
 ["read", "bash", "grep", "find", "ls"]
 ```
 
-- Set plan state to planning mode.
+- Set plan state to planning mode. This must happen any time Cockpit enters `plan`, regardless of whether entry came from `/mode plan`, Shift+Tab cycling, auto-detected input, `/plan`, session restore, or a Cockpit mode event.
 - Optionally prefill or send a planning prompt that references the reusable `plan-interview` / `plan-draft` skills.
 
 ### During Planning
 
-Plan mode is strictly non-editing.
+Plan mode is strictly non-implementation-editing.
 
 - Inject plan-mode prompt instructions through `beforeAgentStart`.
-- Disable mutating tools such as `edit` and `write` while planning.
-- Block mutating shell commands in `tool_call`.
-- Block or reject any attempted file mutation even if a mutating tool is accidentally active.
+- Resolve the effective configured `planPath` on entering plan mode and create that directory if it does not exist.
+- Allow `edit` and `write` only under the effective configured `planPath` while planning.
+- If `planPath` is session-only or not configured, block all `edit` and `write` calls while planning.
+- Block `edit` and `write` for source files while planning.
+- Use a strict bash allowlist in `tool_call`: only simple read-only commands are allowed while planning.
+- Block shell metacharacters, redirection, command chaining, heredocs, and arbitrary interpreters while planning.
+- Block or reject any attempted source file mutation even if a mutating tool is accidentally active.
 - Encourage read-only exploration.
 - Encourage interview before drafting if requirements are unclear.
 - Require a numbered `Plan:` section.
@@ -90,9 +114,9 @@ Prompt addon:
 
 You are in interactive planning mode.
 Use the reusable planning workflow: interview, read-only exploration, draft, review, approval.
-Do not modify files.
-Do not call edit/write tools.
-Use read-only investigation only.
+Do not modify source files.
+Only edit plan documentation under the effective configured `planPath` while planning. If `planPath` is session-only or not configured, do not write plan files.
+Use read-only investigation for code.
 Produce a concrete numbered plan under a `Plan:` header.
 Wait for explicit user approval before implementation.
 ```
@@ -102,7 +126,7 @@ Wait for explicit user approval before implementation.
 - Parse numbered plan items.
 - Save or offer to save the plan document to the configured destination.
 - Display todos in a widget.
-- Prompt user with choices:
+- Immediately prompt the user for approval/refinement choices:
   - Execute plan
   - Refine plan
   - Stay in plan mode
@@ -181,7 +205,8 @@ Confirmation UI should summarize:
 On approval:
 
 1. Persist the approved plan in session state and, if configured, as a plan document.
-2. Clear/reset implementation context, or create a new session, so implementation starts from the approved plan rather than the full planning conversation.
+2. Exit plan mode and restore edit mode/tool access.
+3. Clear/reset implementation context, or create a new session, so implementation starts from the approved plan rather than the full planning conversation.
 3. Seed the new/cleared context with:
    - the approved plan
    - the plan document path, if any
@@ -240,7 +265,10 @@ This sub-phase should not:
 - Plan mode appears in Cockpit footer/title.
 - Agent receives plan-mode instructions before turns.
 - Mutating tools are unavailable or blocked while planning.
-- `edit`, `write`, and mutating shell commands cannot modify files in plan mode.
+- `edit` and `write` can only modify files under the effective configured `planPath` while planning.
+- If `planPath` is session-only or not configured, all `edit` and `write` calls are blocked while planning.
+- Source files cannot be modified in plan mode.
+- Bash is restricted to simple read-only allowlisted commands while planning.
 - Unsafe bash commands are blocked while planning.
 - Numbered `Plan:` output from reusable skills/prompts is parsed into todos.
 - Plan docs can be saved to session-only, repo-local, repo-private, or shared destinations based on the effective `planPath` setting.

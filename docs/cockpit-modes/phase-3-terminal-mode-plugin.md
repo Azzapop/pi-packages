@@ -2,9 +2,19 @@
 
 ## Goal
 
-Create a terminal mode package that plugs into the cockpit mode host. Terminal mode should behave as much like a normal shell as possible while still fitting into Cockpit's mode system.
+Create a terminal mode package that plugs into the cockpit mode host. Terminal mode should let users run terminal commands while preserving the Cockpit UI.
 
 This phase depends on [Phase 1: Cockpit Mode Host](phase-1-cockpit-mode-host.md). It can be implemented independently of [Phase 2: Plan Mode](phase-2-plan-mode.md).
+
+## Chosen Path
+
+Use a staged approach:
+
+1. **Phase 3A: Cockpit shell-command mode** — simple, useful, keeps Cockpit visible.
+2. **Phase 3B: Embedded PTY terminal** — persistent shell inside Cockpit, closer to a real terminal.
+3. **Phase 3C: Optional shell handoff command** — fallback for full-screen interactive programs that need raw terminal ownership.
+
+Do **not** make real shell handoff the default terminal mode, because it stops Cockpit rendering. The primary requirement is to keep Cockpit visible.
 
 ## Package
 
@@ -25,8 +35,7 @@ The package registers a `terminal` mode with cockpit via `pi.events`.
 pi.events.emit("cockpit:mode:register", {
   id: "terminal",
   label: "Terminal",
-  icon: "$",
-  description: "Run shell commands or enter a real shell",
+  description: "Run shell commands inside Cockpit",
   order: 30,
   onEnter(ctx) {
     // activate terminal behavior
@@ -35,39 +44,31 @@ pi.events.emit("cockpit:mode:register", {
     // clean up terminal behavior
   },
   onInput(event, ctx) {
-    // optional command-mode implementation
+    // intercept typed input and run it as a command
   },
 });
 ```
 
-## Implementation Options
+Modes should not affect the Cockpit title. The title is its own thing.
 
-There are three possible implementation levels.
+## Phase 3A: Cockpit Shell-Command Mode
 
-## Option A: Shell-command Mode
+### Purpose
 
-User input is treated as shell command instead of LLM prompt.
+Provide a terminal-like command loop inside Pi/Cockpit without handing off the real terminal.
 
-### Pros
+### Behavior
 
-- Easy to implement.
-- Works inside Pi TUI.
-- `Shift+Tab` can cycle out immediately.
+When active:
 
-### Cons
+- user input is treated as shell command instead of LLM prompt
+- commands execute from a terminal-mode cwd
+- output is rendered inside Pi/Cockpit
+- Cockpit remains visible
+- `Shift+Tab` can cycle modes normally
+- `exit` returns to `edit` mode
 
-- Not literally a full shell.
-- Must manually track `cd` / cwd.
-- Full-screen interactive commands need special handling.
-
-### Implementation
-
-- Active mode `onInput` intercepts input.
-- Run command via `pi.exec()` or local shell operation.
-- Display output as a custom message.
-- Handle `cd`, `pwd`, and `exit` specially.
-
-Example behavior:
+Example:
 
 ```text
 /mode terminal
@@ -75,96 +76,144 @@ $ pwd
 /Users/aaron/src/pi-packages
 $ ls
 README.md packages docs ...
+$ cd packages
+$ pwd
+/Users/aaron/src/pi-packages/packages
 $ exit
 # returns to edit mode
 ```
 
-## Option B: Real Shell Handoff
+### Implementation
 
-On entering terminal mode:
+- Register `terminal` cockpit mode.
+- Maintain `terminalCwd`, initialized from `ctx.cwd`.
+- In active mode `onInput`:
+  - ignore empty input
+  - handle `exit` by switching to `edit`
+  - handle `pwd` without spawning if desired
+  - handle `cd <path>` by resolving/updating `terminalCwd`
+  - run all other commands through shell execution
+  - return `{ action: "handled" }` so the prompt is not sent to the LLM
+- Render command output as visible custom messages.
+- Include command, cwd, stdout/stderr, and nonzero exit code.
 
-- Stop Pi TUI.
-- Spawn `$SHELL` with inherited stdio.
-- User works in a real shell.
-- When shell exits, restart Pi TUI and return to edit mode.
+### Interactive Commands
 
-### Pros
+Phase 3A should detect obvious full-screen/interactive commands and not pretend to support them.
 
-- Closest to “literally behaves the same as terminal shell.”
-- Interactive programs work naturally.
+Examples:
 
-### Cons
+- `vim`, `nvim`, `less`, `more`, `top`, `htop`, `btop`
+- `ssh`, `tmux`, `screen`
+- `lazygit`, `tig`
 
-- `Shift+Tab` cannot cycle out while the shell owns the terminal.
-- User exits with `exit` or `Ctrl-D`.
-
-### Recommended V1
-
-Use this as the first implementation if literal shell behavior is more important than staying inside the Pi TUI.
-
-Potential behavior:
+For V1, show a message like:
 
 ```text
-edit --Shift+Tab--> plan --Shift+Tab--> terminal
-terminal:
-  Pi suspends TUI
-  launches $SHELL in cwd
-  user works normally
-  user exits shell
-  Pi resumes in edit mode
+Interactive command detected. Embedded PTY support is planned for Phase 3B. Use normal Pi bash escape or a future handoff command for now.
 ```
 
-## Option C: Embedded PTY Shell
+### Acceptance Criteria
 
-Use a PTY dependency and implement a terminal-like custom component.
+- `/mode terminal` keeps Cockpit visible.
+- Typing `ls` runs `ls`, not the LLM.
+- `pwd` shows current terminal cwd.
+- `cd packages` changes terminal cwd.
+- command output appears in the Pi/Cockpit conversation.
+- nonzero exit codes are visible.
+- `exit` switches back to `edit` mode.
+- `Shift+Tab` cycles out of terminal mode.
+- Cockpit title remains unchanged.
 
-### Pros
+## Phase 3B: Embedded PTY Terminal
 
-- Best integrated UX.
-- `Shift+Tab` could cycle out.
-- Persistent shell session inside cockpit.
+### Purpose
 
-### Cons
+Provide a persistent shell process inside Cockpit for a more terminal-like experience while keeping Cockpit visible.
 
-- Most complex.
-- Needs resize handling, raw input, scrollback, ANSI behavior, process lifecycle, and dependency management.
+This is the implementation that best matches “shell handoff while keeping Cockpit,” but it is more complex than command mode.
 
-### Recommendation
+### Behavior
 
-Defer until shell handoff or shell-command mode proves insufficient.
+- Start a persistent shell process through a PTY.
+- Render terminal output inside a Cockpit component or widget area.
+- Forward keystrokes to the PTY while terminal mode is active.
+- Preserve Cockpit footer/editor/mode UI around the terminal area.
+- Support resize handling.
+- Maintain scrollback.
+- Allow `Shift+Tab` or another key to return focus/cycle mode.
 
-## Suggested V1 Decision
+### Likely Dependency
 
-Implement **Option B: Real Shell Handoff** first if the priority is “literally behaves like the terminal shell.”
+Use a PTY package such as `node-pty` if compatible with Pi package loading and local installation.
 
-If immediate `Shift+Tab` cycling out of terminal is more important, implement **Option A: Shell-command Mode** first.
+### Challenges
+
+- raw input handling
+- ANSI rendering
+- scrollback
+- terminal resize
+- process lifecycle
+- Ctrl-C/Ctrl-D behavior
+- focus management with Cockpit editor
+- avoiding conflicts with Pi global keybindings
+
+### Acceptance Criteria
+
+- terminal mode starts a persistent shell inside Cockpit
+- `cd` persists naturally because the shell process is persistent
+- basic interactive line editing works
+- command output streams into the terminal area
+- Cockpit footer remains visible
+- mode cycling or a dedicated escape key returns to edit mode
+- shell process is cleaned up on session shutdown/reload
+
+## Phase 3C: Optional Shell Handoff Command
+
+### Purpose
+
+Offer a fallback for full-screen programs that need complete terminal ownership.
+
+This should be optional and explicit, not the default terminal mode.
+
+Potential commands:
+
+```text
+/terminal-handoff
+/terminal-handoff htop
+```
+
+Behavior:
+
+- stop Pi TUI
+- spawn `$SHELL` or the requested command with inherited stdio
+- restart Pi TUI after exit
+- return to previous mode or `edit`
+
+Use this only when Cockpit cannot realistically host the target interaction.
 
 ## UI Integration
 
-Terminal mode should rely on cockpit for primary mode display.
+Terminal mode should rely on Cockpit for primary mode display.
 
-Mode-specific UI suggestions:
+Rules:
 
-- Use `$ terminal` in the footer/title.
-- Use bash-mode border color while terminal mode is active.
-- For shell-command mode, show command output as custom messages.
-- For shell handoff mode, notify before entering the shell and after returning.
+- Do not alter the Cockpit title.
+- Mode label appears only through Cockpit mode display.
+- Terminal mode can use bash-mode editor border if Cockpit supports mode-aware borders.
+- Command output should be rendered as custom messages or, later, a dedicated terminal component.
 
-## Phase 3 Acceptance Criteria
+## Recommended Implementation Order
 
-For real shell handoff V1:
+1. Implement Phase 3A shell-command mode.
+2. Use it daily and identify gaps.
+3. Design the embedded PTY component for Phase 3B.
+4. Add optional shell handoff only for commands that cannot work inside Cockpit.
 
-- `/mode terminal` enters a real shell.
-- Pi TUI stops before the shell starts.
-- Shell inherits stdio and behaves normally.
-- Interactive programs like `vim`, `less`, or `htop` work.
-- Exiting shell restarts Pi TUI.
-- Cockpit returns to a safe mode, probably `edit`.
+## Phase 3 Overall Acceptance Criteria
 
-For shell-command V1:
-
-- `/mode terminal` causes typed input to execute as shell commands.
-- Output is rendered in Pi.
-- `cd` affects subsequent commands.
-- `exit` returns to `edit` mode.
-- `Shift+Tab` cycles out of terminal mode.
+- Terminal mode keeps Cockpit visible by default.
+- Terminal mode does not affect title.
+- Basic shell commands can be run without invoking the LLM.
+- There is a clear path to embedded PTY support for more terminal-like behavior.
+- Optional shell handoff is treated as an escape hatch, not the default mode.
