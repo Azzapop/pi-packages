@@ -9,6 +9,7 @@ packages/
   inventory/                 Pi inventory/resource inspection commands
   themes/                    Personal TUI themes
   pi-cockpit/                Cockpit-style Pi footer/editor UI
+  pi-plan/                   Reusable planning skills, prompts, and helpers
   pi-packages-repo-tools/    Tools and skills for maintaining this repo
 ```
 
@@ -88,6 +89,32 @@ pi -e /Users/aaron/src/pi-packages/packages/pi-cockpit --cockpit-icons unicode
 pi -e /Users/aaron/src/pi-packages/packages/pi-cockpit --cockpit-icons none
 ```
 
+### pi-plan
+
+Provides reusable planning workflows that work without Cockpit.
+
+Included resources:
+
+- Skills: `plan-interview`, `plan-draft`, `plan-review`, `plan-execute`
+- Prompt templates: `/plan`, `/plan-review`
+- Extension commands: `/plan-path`, `/plan-todos`, `/plan-clear`, `/plan-save`
+
+Configure plan document storage in Pi settings with `planPath`:
+
+```json
+{
+  "planPath": "docs/plans"
+}
+```
+
+Relative paths are repo-local. Absolute or `~` paths can point to shared plan locations. Use `null`, `false`, or `"session"` for session-only plans.
+
+Install globally:
+
+```bash
+pi install /Users/aaron/src/pi-packages/packages/pi-plan
+```
+
 ### pi-packages-repo-tools
 
 Provides tools specifically for maintaining this `pi-packages` repository.
@@ -114,8 +141,13 @@ Run Pi with a package for a single session:
 pi -e /Users/aaron/src/pi-packages/packages/inventory
 pi -e /Users/aaron/src/pi-packages/packages/themes
 pi -e /Users/aaron/src/pi-packages/packages/pi-cockpit
+pi -e /Users/aaron/src/pi-packages/packages/pi-plan
 pi -e /Users/aaron/src/pi-packages/packages/pi-packages-repo-tools
 ```
+
+## Design Docs
+
+- [Cockpit Modes Plugin Plan](docs/cockpit-modes/README.md) — phased plan for making `pi-cockpit` a pluggable mode host.
 
 ## Adding more
 

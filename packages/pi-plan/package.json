@@ -1,0 +1,25 @@
+{
+  "name": "pi-plan",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Reusable planning skills, prompts, and helpers for Pi.",
+  "keywords": [
+    "pi-package"
+  ],
+  "license": "UNLICENSED",
+  "type": "module",
+  "pi": {
+    "extensions": [
+      "./extensions"
+    ],
+    "skills": [
+      "./skills"
+    ],
+    "prompts": [
+      "./prompts"
+    ]
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": "*"
+  }
+}

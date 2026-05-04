@@ -1,6 +1,7 @@
 import {
   CustomEditor,
   type ExtensionAPI,
+  type ExtensionContext,
   type KeybindingsManager,
   type ReadonlyFooterDataProvider,
   type Theme,
@@ -40,12 +41,50 @@ type CockpitState = {
   usage?: UsageUpdate;
 };
 
+type CockpitMode = {
+  id: string;
+  label: string;
+  icon?: string;
+  description?: string;
+  order?: number;
+  onEnter?: (ctx: ExtensionContext) => void | Promise<void>;
+  onExit?: (ctx: ExtensionContext) => void | Promise<void>;
+  getTitlePrefix?: (ctx: ExtensionContext) => string | undefined;
+  getFooterSegments?: (ctx: ExtensionContext) => string[];
+  getStatusText?: (ctx: ExtensionContext) => string | undefined;
+  onInput?: (event: any, ctx: ExtensionContext) => any | Promise<any>;
+  beforeAgentStart?: (event: any, ctx: ExtensionContext) => any | Promise<any>;
+};
+
 const EXTENSION_NAME = "pi-cockpit";
 const DEFAULT_TITLE = "";
 const SEGMENT_SEPARATOR = " │ ";
+const MODE_STATE_ENTRY = "cockpit-mode";
+const EDIT_MODE: CockpitMode = {
+  id: "edit",
+  label: "Edit",
+  description: "Normal Pi editing mode",
+  order: 0,
+};
 
 function getTitle(state: CockpitState): string {
   return state.manualTitle || state.autoTitle || "";
+}
+
+function isCockpitMode(value: unknown): value is CockpitMode {
+  if (!value || typeof value !== "object") return false;
+  const mode = value as CockpitMode;
+  return typeof mode.id === "string" && mode.id.trim().length > 0 && typeof mode.label === "string" && mode.label.trim().length > 0;
+}
+
+function formatMode(mode: CockpitMode, ctx?: ExtensionContext): string {
+  const status = ctx ? mode.getStatusText?.(ctx) : undefined;
+  if (status) return sanitizeOneLine(status);
+  return sanitizeOneLine(mode.label.toLowerCase());
+}
+
+function sortedModes(modes: Map<string, CockpitMode>): CockpitMode[] {
+  return [...modes.values()].sort((a, b) => (a.order ?? 1000) - (b.order ?? 1000) || a.label.localeCompare(b.label));
 }
 
 function getSessionTotals(ctx: any): { input: number; output: number; cost: number } {
@@ -117,6 +156,7 @@ class CockpitFooter implements Component {
     private getState: () => CockpitState,
     private getIconStyle: () => IconStyle,
     private getThinkingLevel: () => ThinkingLevel | string | undefined,
+    private getActiveMode: () => CockpitMode,
   ) {
     this.unsubBranch = footerData.onBranchChange(() => this.tui.requestRender());
     setGitUpdateCallback(() => this.tui.requestRender());
@@ -137,6 +177,14 @@ class CockpitFooter implements Component {
 
     const icon = (text: string) => this.theme.fg("borderAccent", text);
     const loading = icon(icons.loading);
+    const activeMode = this.getActiveMode();
+    leftSegments.push(activeMode.id === "edit" ? this.theme.fg("text", formatMode(activeMode, ctx)) : this.theme.fg("accent", formatMode(activeMode, ctx)));
+    if (ctx) {
+      for (const segment of activeMode.getFooterSegments?.(ctx) ?? []) {
+        if (segment) leftSegments.push(sanitizeOneLine(segment));
+      }
+    }
+
     const contextUsage = ctx?.getContextUsage?.();
     if (contextUsage) {
       const percent = contextUsage.percent == null ? undefined : Number(contextUsage.percent);
@@ -206,6 +254,7 @@ class CockpitEditor extends CustomEditor {
     private appTheme: Theme,
     private getTitle: () => string,
     private getThinkingLevel: () => ThinkingLevel | string | undefined,
+    private getActiveMode: () => CockpitMode,
   ) {
     super(tui, editorTheme, keybindings, { paddingX: 2 });
   }
@@ -217,7 +266,9 @@ class CockpitEditor extends CustomEditor {
 
   private currentBorderColor(): (s: string) => string {
     const text = this.getText().trimStart();
-    if (text.startsWith("!")) return this.appTheme.getBashModeBorderColor();
+    const mode = this.getActiveMode();
+    if (mode.id === "terminal" || text.startsWith("!")) return this.appTheme.getBashModeBorderColor();
+    if (mode.id === "plan") return (s: string) => this.appTheme.fg("warning", s);
     return (s: string) => this.appTheme.fg("muted", s);
   }
 
@@ -233,8 +284,14 @@ class CockpitEditor extends CustomEditor {
 
 export default function (pi: ExtensionAPI) {
   const state: CockpitState = { autoTitle: DEFAULT_TITLE };
+  const modes = new Map<string, CockpitMode>([[EDIT_MODE.id, EDIT_MODE]]);
+  let activeModeId = EDIT_MODE.id;
+  let pendingRestoreModeId: string | undefined;
   let currentCtx: any;
   let unsubscribeUsage: (() => void) | undefined;
+  let unsubscribeModeRegister: (() => void) | undefined;
+  let unsubscribeModeSwitch: (() => void) | undefined;
+  let unsubscribeModeNext: (() => void) | undefined;
 
   pi.registerFlag("cockpit-icons", {
     description: "Pi Cockpit icon style: nerd, unicode, or none",
@@ -244,6 +301,110 @@ export default function (pi: ExtensionAPI) {
 
   const getIconStyle = () => normalizeIconStyle(pi.getFlag("cockpit-icons"));
   const getThinkingLevel = () => pi.getThinkingLevel?.();
+  const getActiveMode = () => modes.get(activeModeId) ?? EDIT_MODE;
+
+  function persistMode(): void {
+    pi.appendEntry(MODE_STATE_ENTRY, { activeMode: activeModeId });
+  }
+
+  function updateModeUi(ctx: ExtensionContext): void {
+    if (!ctx.hasUI) return;
+    // The active mode is rendered by the Cockpit footer itself. Clear any
+    // previous status entry to avoid duplicate mode labels in the status bar.
+    ctx.ui.setStatus("pi-cockpit-mode", undefined);
+  }
+
+  function registerMode(mode: CockpitMode): void {
+    if (!isCockpitMode(mode)) {
+      currentCtx?.ui?.notify?.("Ignored invalid cockpit mode registration", "warning");
+      return;
+    }
+
+    const normalized = { ...mode, id: mode.id.trim(), label: mode.label.trim() };
+    modes.set(normalized.id, normalized);
+
+    if (pendingRestoreModeId === normalized.id && currentCtx) {
+      pendingRestoreModeId = undefined;
+      void switchMode(currentCtx, normalized.id, { persist: false, notify: false });
+    }
+  }
+
+  async function switchMode(ctx: ExtensionContext, targetModeId: string, options: { persist?: boolean; notify?: boolean } = {}): Promise<boolean> {
+    const target = modes.get(targetModeId);
+    if (!target) {
+      ctx.ui.notify(`Unknown cockpit mode: ${targetModeId}. Available: ${sortedModes(modes).map((m) => m.id).join(", ")}`, "warning");
+      return false;
+    }
+
+    const previousId = activeModeId;
+    if (previousId === target.id) {
+      updateModeUi(ctx);
+      return true;
+    }
+
+    const previous = getActiveMode();
+    try {
+      await previous.onExit?.(ctx);
+    } catch (error) {
+      ctx.ui.notify(`Cockpit mode ${previous.id} exit failed: ${error instanceof Error ? error.message : String(error)}`, "warning");
+    }
+
+    activeModeId = target.id;
+    try {
+      await target.onEnter?.(ctx);
+    } catch (error) {
+      activeModeId = previousId;
+      ctx.ui.notify(`Cockpit mode ${target.id} enter failed: ${error instanceof Error ? error.message : String(error)}`, "error");
+      try {
+        await previous.onEnter?.(ctx);
+      } catch {
+        // Best-effort restore only.
+      }
+      updateModeUi(ctx);
+      return false;
+    }
+
+    if (options.persist !== false) persistMode();
+    updateModeUi(ctx);
+    pi.events.emit("cockpit:mode:changed", { previousMode: previousId, activeMode: activeModeId });
+    if (options.notify !== false) ctx.ui.notify(`Cockpit mode: ${formatMode(target, ctx)}`, "info");
+    return true;
+  }
+
+  async function switchToNextMode(ctx: ExtensionContext): Promise<void> {
+    const ordered = sortedModes(modes);
+    const index = Math.max(0, ordered.findIndex((mode) => mode.id === activeModeId));
+    const next = ordered[(index + 1) % ordered.length] ?? EDIT_MODE;
+    await switchMode(ctx, next.id);
+  }
+
+  function buildCockpitTitle(ctx?: ExtensionContext): string {
+    const title = getTitle(state);
+    const mode = getActiveMode();
+    const prefix = ctx ? mode.getTitlePrefix?.(ctx) : undefined;
+    const modePrefix = sanitizeOneLine(prefix || mode.label.toLowerCase());
+    if (mode.id === "edit") return title;
+    return title ? `${modePrefix} / ${title}` : modePrefix;
+  }
+
+  async function restoreModeFromSession(ctx: ExtensionContext): Promise<void> {
+    const entries = ctx.sessionManager.getEntries();
+    const modeEntry = entries
+      .filter((entry: any) => entry?.type === "custom" && entry.customType === MODE_STATE_ENTRY)
+      .pop() as { data?: { activeMode?: string } } | undefined;
+    const restored = modeEntry?.data?.activeMode;
+    if (!restored || restored === EDIT_MODE.id) {
+      activeModeId = EDIT_MODE.id;
+      pendingRestoreModeId = undefined;
+      return;
+    }
+    if (modes.has(restored)) {
+      await switchMode(ctx, restored, { persist: false, notify: false });
+    } else {
+      activeModeId = EDIT_MODE.id;
+      pendingRestoreModeId = restored;
+    }
+  }
 
   function installUi(ctx: any) {
     if (!ctx?.hasUI) return;
@@ -260,13 +421,39 @@ export default function (pi: ExtensionAPI) {
     });
 
     ctx.ui.setFooter((tui: TUI, theme: Theme, footerData: ReadonlyFooterDataProvider) =>
-      new CockpitFooter(tui, theme, footerData, () => currentCtx, () => state, getIconStyle, getThinkingLevel),
+      new CockpitFooter(tui, theme, footerData, () => currentCtx, () => state, getIconStyle, getThinkingLevel, getActiveMode),
     );
 
     ctx.ui.setEditorComponent((tui: TUI, editorTheme: EditorTheme, keybindings: KeybindingsManager) =>
-      new CockpitEditor(tui, editorTheme, keybindings, ctx.ui.theme, () => getTitle(state), getThinkingLevel),
+      new CockpitEditor(tui, editorTheme, keybindings, ctx.ui.theme, () => buildCockpitTitle(ctx), getThinkingLevel, getActiveMode),
     );
+
+    updateModeUi(ctx);
   }
+
+  function formatModeList(ctx: ExtensionContext): string {
+    return sortedModes(modes)
+      .map((mode) => `${mode.id === activeModeId ? "*" : " "} ${formatMode(mode, ctx)} (${mode.id})${mode.description ? ` - ${mode.description}` : ""}`)
+      .join("\n");
+  }
+
+  registerMode(EDIT_MODE);
+
+  unsubscribeModeRegister = pi.events.on("cockpit:mode:register", (mode: unknown) => {
+    registerMode(mode as CockpitMode);
+    if (currentCtx) updateModeUi(currentCtx);
+  });
+
+  unsubscribeModeSwitch = pi.events.on("cockpit:mode:switch", (data: unknown) => {
+    const id = typeof data === "string" ? data : (data as { id?: unknown } | undefined)?.id;
+    if (typeof id !== "string") return;
+    if (currentCtx) void switchMode(currentCtx, id);
+    else if (modes.has(id)) activeModeId = id;
+  });
+
+  unsubscribeModeNext = pi.events.on("cockpit:mode:next", () => {
+    if (currentCtx) void switchToNextMode(currentCtx);
+  });
 
   unsubscribeUsage = pi.events.on("usage:update", (data: unknown) => {
     if (data && typeof data === "object") {
@@ -276,11 +463,20 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("session_start", async (_event, ctx) => {
     installUi(ctx);
+    await restoreModeFromSession(ctx);
+    updateModeUi(ctx);
+    pi.events.emit("cockpit:ready", { activeMode: activeModeId, modes: sortedModes(modes).map((mode) => mode.id) });
   });
 
   pi.on("session_shutdown", async (_event, ctx) => {
     unsubscribeUsage?.();
     unsubscribeUsage = undefined;
+    unsubscribeModeRegister?.();
+    unsubscribeModeRegister = undefined;
+    unsubscribeModeSwitch?.();
+    unsubscribeModeSwitch = undefined;
+    unsubscribeModeNext?.();
+    unsubscribeModeNext = undefined;
     resetGitCache();
 
     if (ctx?.hasUI) {
@@ -290,12 +486,19 @@ export default function (pi: ExtensionAPI) {
     }
   });
 
+  pi.on("input", async (event, ctx) => {
+    currentCtx = ctx;
+    return getActiveMode().onInput?.(event, ctx);
+  });
+
   pi.on("before_agent_start", async (event, ctx) => {
     currentCtx = ctx;
 
     if (!state.manualTitle && !state.titleCleared && !state.autoTitle) {
       state.autoTitle = summarizePrompt(event.prompt ?? "");
     }
+
+    return getActiveMode().beforeAgentStart?.(event, ctx);
   });
 
   pi.on("turn_start", async (_event, ctx) => {
@@ -312,6 +515,57 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("thinking_level_select", async (_event, ctx) => {
     currentCtx = ctx;
+  });
+
+  pi.registerShortcut("shift+tab", {
+    description: "Cycle cockpit mode",
+    handler: async (ctx) => {
+      currentCtx = ctx;
+      await switchToNextMode(ctx);
+    },
+  });
+
+  pi.registerCommand("mode", {
+    description: "Show or switch Pi Cockpit modes",
+    getArgumentCompletions: (prefix: string) => {
+      const values = ["list", "status", "next", ...sortedModes(modes).map((mode) => mode.id)];
+      return values
+        .filter((value) => value.startsWith(prefix.trim()))
+        .map((value) => ({ value, label: value }));
+    },
+    handler: async (args, ctx) => {
+      currentCtx = ctx;
+      const value = args.trim();
+
+      if (!value) {
+        const labels = new Map<string, string>();
+        const choices = sortedModes(modes).map((mode) => {
+          const label = `${formatMode(mode, ctx)} (${mode.id})${mode.description ? ` - ${mode.description}` : ""}`;
+          labels.set(label, mode.id);
+          return label;
+        });
+        const selected = await ctx.ui.select("Cockpit mode", choices);
+        if (selected) await switchMode(ctx, labels.get(selected) ?? selected);
+        return;
+      }
+
+      if (value === "list") {
+        ctx.ui.notify(`Cockpit modes:\n${formatModeList(ctx)}`, "info");
+        return;
+      }
+
+      if (value === "status") {
+        ctx.ui.notify(`Cockpit mode: ${formatMode(getActiveMode(), ctx)}`, "info");
+        return;
+      }
+
+      if (value === "next") {
+        await switchToNextMode(ctx);
+        return;
+      }
+
+      await switchMode(ctx, value);
+    },
   });
 
   pi.registerCommand("session-title", {
