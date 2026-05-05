@@ -121,7 +121,7 @@ function formatGitCount(symbol: string, count: number, color: ThemeColor, theme:
 
 export function formatGitInfo(info: GitInfo, icons: Icons, theme: Theme, icon: (text: string) => string): string {
   const branchIcon = info.isWorktree ? icons.worktreeBranch : icons.branch;
-  const branch = `${icon(branchIcon)} ${info.branch}`;
+  const branch = branchIcon ? `${icon(branchIcon)} ${info.branch}` : info.branch;
   const divergence = [
     info.ahead > 0 && info.behind > 0 ? formatGitCount(icons.diverged, 1, "error", theme) : undefined,
     formatGitCount(icons.ahead, info.ahead, "success", theme),

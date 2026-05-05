@@ -4,21 +4,7 @@ import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 
-type PlanTodo = {
-  step: number;
-  text: string;
-  completed?: boolean;
-};
-
-type PlanModeState = {
-  active: boolean;
-  executionMode: boolean;
-  approvedPlan?: string;
-  rawPlan?: string;
-  todos: PlanTodo[];
-  previousTools?: string[];
-  planPath?: string;
-};
+// ── Cockpit mode type (matches pi-cockpit's registration shape) ──
 
 type CockpitMode = {
   id: string;
@@ -29,90 +15,18 @@ type CockpitMode = {
   onExit?: (ctx: ExtensionContext) => void | Promise<void>;
   getFooterSegments?: (ctx: ExtensionContext) => string[];
   getStatusText?: (ctx: ExtensionContext) => string | undefined;
-  beforeAgentStart?: (event: any, ctx: ExtensionContext) => any | Promise<any>;
 };
 
-const STATE_ENTRY = "cockpit-plan-mode";
-const PLAN_MODE_TOOLS = ["read", "bash", "grep", "find", "ls", "edit", "write"];
-const PLAN_HEADING_RE = /^\s*Plan:\s*$/im;
-const NUMBERED_STEP_RE = /^\s*(\d+)[.)]\s+(.+?)\s*$/gm;
-const MUTATING_TOOLS = new Set(["edit", "write"]);
-const SAFE_BASH_COMMANDS = new Set([
-  "awk",
-  "basename",
-  "cat",
-  "date",
-  "dirname",
-  "du",
-  "echo",
-  "env",
-  "fd",
-  "find",
-  "git",
-  "grep",
-  "head",
-  "jq",
-  "ls",
-  "npm",
-  "pnpm",
-  "pwd",
-  "rg",
-  "sort",
-  "tail",
-  "tree",
-  "uname",
-  "uniq",
-  "wc",
-  "whoami",
-  "yarn",
-]);
+// ── Minimal local state (cockpit-specific concerns only) ──
 
-const SAFE_GIT_SUBCOMMANDS = new Set(["branch", "diff", "log", "show", "status"]);
-const SAFE_NPM_SUBCOMMANDS = new Set(["info", "list", "ls", "outdated", "view", "why"]);
-const PLAN_TRIGGER_PATTERNS = [
-  /\bplan\s+(this|it|out|first|before|the work|an implementation|implementation)\b/i,
-  /\b(make|create|draft|write|build)\s+(me\s+)?(a\s+)?plan\b/i,
-  /\bhelp\s+me\s+plan\b/i,
-  /\blet'?s\s+plan\b/i,
-  /\bthink\s+(this\s+)?through\b/i,
-  /\bbefore\s+(editing|implementing|coding|changing)\b/i,
-  /\b(read[- ]only|no edits?|don'?t edit|do not edit)\b/i,
-  /\bimplementation\s+plan\b/i,
-  /\bplanning\s+mode\b/i,
-  /\bplan\s+workflow\b/i,
-  /\btrigger\s+(the\s+)?plan\b/i,
-  /\bapproval\s+flow\b/i,
-  /\bneed\s+to\s+approve\b/i,
-];
+type PlanModeState = {
+  active: boolean;
+  previousTools?: string[];
+  todos: { step: number; text: string; completed?: boolean }[];
+  executionMode: boolean;
+};
 
-function getTextFromMessage(message: any): string {
-  const content = message?.content;
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  return content
-    .filter((block) => block?.type === "text" && typeof block.text === "string")
-    .map((block) => block.text)
-    .join("\n");
-}
-
-function extractPlanText(text: string): string | undefined {
-  const match = PLAN_HEADING_RE.exec(text);
-  if (!match) return undefined;
-  const after = text.slice(match.index).trim();
-  const nextHeading = after.slice(match[0].length).search(/^##?\s+\S/m);
-  if (nextHeading === -1) return after;
-  return after.slice(0, match[0].length + nextHeading).trim();
-}
-
-function extractTodos(planText: string): PlanTodo[] {
-  const todos: PlanTodo[] = [];
-  for (const match of planText.matchAll(NUMBERED_STEP_RE)) {
-    const step = Number(match[1]);
-    const text = match[2]?.trim();
-    if (Number.isFinite(step) && text) todos.push({ step, text });
-  }
-  return todos;
-}
+// ── Plan path resolution (needed for tool-call gating) ──
 
 function expandHome(path: string): string {
   if (path === "~") return homedir();
@@ -161,6 +75,19 @@ async function isAllowedPlanDocPath(path: unknown, ctx: ExtensionContext): Promi
   return absoluteInput === absolutePlanPath || absoluteInput.startsWith(`${absolutePlanPath}/`);
 }
 
+// ── Bash safety ──
+
+const MUTATING_TOOLS = new Set(["edit", "write"]);
+
+const SAFE_BASH_COMMANDS = new Set([
+  "awk", "basename", "cat", "date", "dirname", "du", "echo", "env",
+  "fd", "find", "git", "grep", "head", "jq", "ls", "npm", "pnpm",
+  "pwd", "rg", "sort", "tail", "tree", "uname", "uniq", "wc", "whoami", "yarn",
+]);
+
+const SAFE_GIT_SUBCOMMANDS = new Set(["branch", "diff", "log", "show", "status"]);
+const SAFE_NPM_SUBCOMMANDS = new Set(["info", "list", "ls", "outdated", "view", "why"]);
+
 function stripShellSyntax(command: string): string {
   return command
     .replace(/^\s*(?:command|builtin|noglob|time)\s+/, "")
@@ -191,87 +118,61 @@ function isSafeReadOnlyCommand(command: string): boolean {
   return true;
 }
 
+// ── Auto-enter detection ──
+
+const PLAN_TRIGGER_PATTERNS = [
+  /\b(make|create|draft|write|build|start)\s+(me\s+)?(a\s+)?plan\b/i,
+  /\bplan\s+(this|it|out|first|before|the work|an implementation|implementation)\b/i,
+  /\bhelp\s+me\s+plan\b/i,
+  /\blet'?s\s+plan\b/i,
+  /\bimplementation\s+plan\b/i,
+  /\bplan(?:ning)?\s+mode\b/i,
+  /\bplan\s+workflow\b/i,
+  /\bbefore\s+(editing|implementing|coding|changing)\b/i,
+  /\bplan\b.*\bapproval?\b/i,
+  /\bapproval?\b.*\bplan\b/i,
+];
+
 function shouldAutoEnterPlanMode(text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed || trimmed.startsWith("!")) return false;
   if (/^\/plan(?:\s|$)/.test(trimmed)) return true;
   if (trimmed.startsWith("/")) return false;
-  if (/\bplan\b/i.test(trimmed) && /\bapprove|approval\b/i.test(trimmed)) return true;
   return PLAN_TRIGGER_PATTERNS.some((pattern) => pattern.test(trimmed));
 }
 
-function markCompletedSteps(text: string, todos: PlanTodo[]): number {
-  let changed = 0;
-  for (const match of text.matchAll(/\[DONE:(\d+)\]/g)) {
-    const step = Number(match[1]);
-    const todo = todos.find((item) => item.step === step);
-    if (todo && !todo.completed) {
-      todo.completed = true;
-      changed++;
-    }
-  }
-  return changed;
+// ── System prompt injection ──
+
+function planSystemPrompt(systemPrompt: string): string {
+  return `${systemPrompt}\n\n[PLAN MODE ACTIVE]\n\nYou are in interactive planning mode. Use the reusable planning workflow: interview, read-only exploration, draft, review, approval. Do not modify source files. You may edit plan documentation only under the configured planPath. If planPath is session-only or not configured, do not write plan files. Do not use edit/write on source files. Use read-only investigation for code. Produce a concrete numbered plan under a \`Plan:\` header. Wait for explicit user approval before implementation.`;
 }
 
-function renderTodos(ctx: ExtensionContext, state: PlanModeState): void {
-  if (!ctx.hasUI) return;
-  if (!state.executionMode || state.todos.length === 0) {
-    ctx.ui.setWidget("cockpit-plan-todos", undefined);
-    ctx.ui.setStatus("cockpit-plan", undefined);
-    return;
-  }
-
-  const completed = state.todos.filter((todo) => todo.completed).length;
-  ctx.ui.setStatus("cockpit-plan", `plan ${completed}/${state.todos.length}`);
-  ctx.ui.setWidget(
-    "cockpit-plan-todos",
-    state.todos.map((todo) => {
-      if (todo.completed) return ctx.ui.theme.fg("success", "☑ ") + ctx.ui.theme.fg("muted", ctx.ui.theme.strikethrough(todo.text));
-      return `${ctx.ui.theme.fg("muted", "☐ ")}${todo.text}`;
-    }),
-  );
-}
-
-function restoreState(ctx: ExtensionContext): PlanModeState {
-  const entry = ctx.sessionManager
-    .getEntries()
-    .filter((entry: any) => entry?.type === "custom" && entry.customType === STATE_ENTRY)
-    .pop() as { data?: PlanModeState } | undefined;
-  return { active: false, executionMode: false, todos: [], ...(entry?.data ?? {}) };
-}
-
-function buildImplementationSeed(state: PlanModeState): string {
-  const plan = state.approvedPlan || state.rawPlan || ["Plan:", ...state.todos.map((todo) => `${todo.step}. ${todo.text}`)].join("\n");
-  const progress = state.todos.map((todo) => `- [ ] ${todo.step}. ${todo.text}`).join("\n");
-  return `[APPROVED PLAN]\n\n${plan}\n\nExecution requirements:\n- Execute steps in order.\n- After completing step n, include [DONE:n].\n- Stop and ask if the plan becomes invalid.\n\nProgress checklist:\n${progress}\n${state.planPath ? `\nPlan document: ${state.planPath}\n` : ""}`;
-}
+// ── Extension entry point ──
 
 export default function (pi: ExtensionAPI) {
   let state: PlanModeState = { active: false, executionMode: false, todos: [] };
   let currentCtx: ExtensionContext | undefined;
 
-  function persist(): void {
-    pi.appendEntry(STATE_ENTRY, state);
-  }
-
-  function debug(ctx: ExtensionContext | undefined, message: string): void {
-    if (ctx?.hasUI) ctx.ui.notify(`[plan-debug] ${message}`, "info");
-  }
+  // ── Plan mode enter/exit ──
 
   async function enterPlanMode(ctx: ExtensionContext, options: { notify?: boolean; source?: string } = {}): Promise<void> {
     const previousTools = state.previousTools ?? pi.getActiveTools?.();
-    state = { ...state, active: true, executionMode: false, previousTools };
-    debug(ctx, `enterPlanMode source=${options.source ?? "unknown"}`);
-    pi.setActiveTools(PLAN_MODE_TOOLS);
+    state = { ...state, active: true, previousTools };
+
+    // Build dynamic tool list: only include edit/write if planPath exists
     const planPath = await resolvePlanPath(ctx);
-    if (planPath) await mkdir(planPath, { recursive: true });
-    persist();
-    renderTodos(ctx, state);
+    const tools = ["read", "bash", "grep", "find", "ls"];
+    if (planPath) {
+      tools.push("edit", "write");
+      await mkdir(planPath, { recursive: true });
+    }
+    pi.setActiveTools(tools);
+
     if (options.notify !== false && ctx.hasUI) {
       ctx.ui.notify(
         planPath
-          ? `Plan mode enabled. Source editing is blocked until approval; only planPath edits are allowed: ${planPath}`
-          : "Plan mode enabled. Editing is blocked until approval because planPath is session-only or not configured.",
+          ? `Plan mode enabled. Source editing blocked until approval; plan docs allowed under: ${planPath}`
+          : "Plan mode enabled. All editing blocked until approval (no planPath configured).",
         "info",
       );
     }
@@ -279,15 +180,11 @@ export default function (pi: ExtensionAPI) {
 
   function leavePlanMode(ctx: ExtensionContext): void {
     state = { ...state, active: false };
-    if (!state.executionMode && state.previousTools?.length) pi.setActiveTools(state.previousTools);
-    persist();
-    renderTodos(ctx, state);
+    if (state.previousTools?.length) pi.setActiveTools(state.previousTools);
+    if (ctx.hasUI) ctx.ui.notify("Plan mode exited", "info");
   }
 
-
-  function planSystemPrompt(systemPrompt: string): string {
-    return `${systemPrompt}\n\n[PLAN MODE ACTIVE]\n\nYou are in interactive planning mode. Use the reusable planning workflow: interview, read-only exploration, draft, review, approval. Do not modify source files. You may edit plan documentation only under the configured planPath. If planPath is session-only or not configured, do not write plan files. Do not use edit/write on source files. Use read-only investigation for code. Produce a concrete numbered plan under a \`Plan:\` header. Wait for explicit user approval before implementation.`;
-  }
+  // ── Cockpit mode registration ──
 
   function registerCockpitMode(): void {
     const mode: CockpitMode = {
@@ -301,22 +198,74 @@ export default function (pi: ExtensionAPI) {
       onExit: async (ctx) => {
         leavePlanMode(ctx);
       },
-      getStatusText: () => "plan",
+      getStatusText: () => {
+        if (state.executionMode && state.todos.length > 0) {
+          const completed = state.todos.filter((t) => t.completed).length;
+          return `plan ${completed}/${state.todos.length}`;
+        }
+        return state.active ? "plan" : undefined;
+      },
       getFooterSegments: () => {
         if (!state.executionMode || state.todos.length === 0) return [];
-        const completed = state.todos.filter((todo) => todo.completed).length;
+        const completed = state.todos.filter((t) => t.completed).length;
         return [`${completed}/${state.todos.length}`];
       },
-
     };
 
     pi.events.emit("cockpit:mode:register", mode);
   }
 
+  // ── Listen to pi-plan events (state comes from pi-plan, not us) ──
+
+  pi.events.on("plan:draft", (event: any) => {
+    state.todos = event.todos ?? [];
+
+    // If plan mode is active, we handle the approval UI with cockpit-specific choices
+    if (!state.active || !currentCtx?.hasUI) return;
+    event.handled = true;
+
+    const ctx = currentCtx;
+    void (async () => {
+      const choice = await ctx.ui.select("Plan drafted. What next?", [
+        "Approve plan and start implementation in a new context",
+        "Save plan document",
+        "Refine plan",
+        "Stay in plan mode",
+        "Exit to edit mode",
+      ]);
+
+      if (choice === "Approve plan and start implementation in a new context") {
+        state = { ...state, active: false, executionMode: true };
+        pi.events.emit("cockpit:mode:switch", { id: "edit" });
+        pi.sendUserMessage("/plan-approve", { deliverAs: "followUp" });
+      } else if (choice === "Save plan document") {
+        pi.sendUserMessage("/plan-save", { deliverAs: "followUp" });
+      } else if (choice === "Refine plan") {
+        const refinement = await ctx.ui.editor("How should the plan be refined?", "");
+        if (refinement?.trim()) pi.sendUserMessage(refinement.trim());
+      } else if (choice === "Exit to edit mode") {
+        pi.events.emit("cockpit:mode:switch", { id: "edit" });
+      }
+    })();
+  });
+
+  pi.events.on("plan:progress", (event: any) => {
+    state.todos = event.todos ?? state.todos;
+  });
+
+  pi.events.on("plan:approved", () => {
+    state = { ...state, active: false, executionMode: true };
+    if (state.previousTools?.length) pi.setActiveTools(state.previousTools);
+  });
+
+  pi.events.on("plan:cleared", () => {
+    state = { ...state, active: false, executionMode: false, todos: [] };
+  });
+
+  // ── Session lifecycle ──
+
   pi.on("session_start", async (_event, ctx) => {
     currentCtx = ctx;
-    state = restoreState(ctx);
-    renderTodos(ctx, state);
     registerCockpitMode();
   });
 
@@ -332,21 +281,22 @@ export default function (pi: ExtensionAPI) {
     }
   });
 
+  // ── Auto-enter from user input ──
+
   pi.on("input", async (event, ctx) => {
     currentCtx = ctx;
     if (state.active || state.executionMode || event.source === "extension") return;
     if (!shouldAutoEnterPlanMode(event.text)) return;
-    debug(ctx, `input trigger text=${JSON.stringify(event.text.slice(0, 120))}`);
     await enterPlanMode(ctx, { notify: true, source: "input" });
     pi.events.emit("cockpit:mode:switch", { id: "plan" });
     return { action: "continue" };
   });
 
+  // ── System prompt injection + auto-enter from agent start ──
 
   pi.on("before_agent_start", async (event, ctx) => {
     currentCtx = ctx;
     if (!state.active && !state.executionMode && shouldAutoEnterPlanMode(event.prompt ?? "")) {
-      debug(ctx, `before_agent_start trigger prompt=${JSON.stringify((event.prompt ?? "").slice(0, 120))}`);
       await enterPlanMode(ctx, { notify: true, source: "before_agent_start" });
       pi.events.emit("cockpit:mode:switch", { id: "plan" });
     }
@@ -354,9 +304,12 @@ export default function (pi: ExtensionAPI) {
     return { systemPrompt: planSystemPrompt(event.systemPrompt) };
   });
 
+  // ── Tool-call enforcement (cockpit-specific: block edits and unsafe bash) ──
+
   pi.on("tool_call", async (event, ctx) => {
     currentCtx = ctx;
     if (!state.active) return;
+
     if (MUTATING_TOOLS.has(event.toolName)) {
       const path = (event.input as { path?: unknown } | undefined)?.path;
       if (!(await isAllowedPlanDocPath(path, ctx))) {
@@ -364,114 +317,17 @@ export default function (pi: ExtensionAPI) {
         return {
           block: true,
           reason: planPath
-            ? `Plan mode blocks source edits until approval. Only files under the configured planPath may be edited while planning: ${planPath}`
-            : "Plan mode blocks edits until approval because planPath is session-only or not configured.",
+            ? `Plan mode blocks source edits until approval. Only files under planPath may be edited: ${planPath}`
+            : "Plan mode blocks edits until approval (no planPath configured).",
         };
       }
     }
+
     if (event.toolName === "bash") {
       const command = typeof event.input?.command === "string" ? event.input.command : "";
       if (!isSafeReadOnlyCommand(command)) {
-        return { block: true, reason: `Plan mode only allows simple read-only shell commands until approval. Command: ${command}` };
+        return { block: true, reason: `Plan mode only allows simple read-only shell commands. Blocked: ${command}` };
       }
     }
-  });
-
-  pi.on("agent_end", async (event, ctx) => {
-    currentCtx = ctx;
-    debug(ctx, `agent_end active=${state.active} execution=${state.executionMode} messages=${event.messages.length}`);
-    if (!state.active || state.executionMode) return;
-    const lastAssistant = [...event.messages].reverse().find((message: any) => message?.role === "assistant");
-    const assistantText = getTextFromMessage(lastAssistant);
-    debug(ctx, `agent_end assistantTextLen=${assistantText.length}`);
-    const rawPlan = extractPlanText(assistantText);
-    debug(ctx, `agent_end rawPlan=${rawPlan ? "yes" : "no"}`);
-    if (!rawPlan) return;
-
-    const todos = extractTodos(rawPlan);
-    debug(ctx, `agent_end todos=${todos.length}`);
-    if (todos.length === 0) return;
-
-    state = { ...state, rawPlan, todos };
-    persist();
-
-    if (!ctx.hasUI) {
-      debug(ctx, "agent_end no-ui; approval prompt skipped");
-      return;
-    }
-    debug(ctx, "opening approval prompt");
-    const choice = await ctx.ui.select("Plan drafted. What next?", [
-      "Approve plan and start implementation in a new context",
-      "Save plan document",
-      "Refine plan",
-      "Stay in plan mode",
-      "Exit to edit mode",
-    ]);
-
-    if (choice === "Approve plan and start implementation in a new context") {
-      state = { ...state, approvedPlan: rawPlan, executionMode: true, active: false };
-      persist();
-      pi.events.emit("cockpit:mode:switch", { id: "edit" });
-      pi.sendUserMessage("/plan-approve", { deliverAs: "followUp" });
-    } else if (choice === "Save plan document") {
-      pi.sendUserMessage("/plan-save", { deliverAs: "followUp" });
-    } else if (choice === "Refine plan") {
-      const refinement = await ctx.ui.editor("How should the plan be refined?", "");
-      if (refinement?.trim()) pi.sendUserMessage(refinement.trim());
-    } else if (choice === "Exit to edit mode") {
-      pi.events.emit("cockpit:mode:switch", { id: "edit" });
-    }
-  });
-
-  pi.on("turn_end", async (event, ctx) => {
-    currentCtx = ctx;
-    if (!state.executionMode || state.todos.length === 0) return;
-    if (markCompletedSteps(getTextFromMessage(event.message), state.todos) === 0) return;
-    persist();
-    renderTodos(ctx, state);
-  });
-
-  pi.registerCommand("plan-approve", {
-    description: "Approve the current plan and start implementation in a new context",
-    handler: async (_args, ctx) => {
-      debug(ctx, `plan-approve command rawPlan=${state.rawPlan ? "yes" : "no"} todos=${state.todos.length}`);
-      if (!state.rawPlan || state.todos.length === 0) {
-        ctx.ui.notify("No draft plan is available to approve.", "warning");
-        return;
-      }
-
-      await ctx.waitForIdle();
-      state = { ...state, approvedPlan: state.rawPlan, active: false, executionMode: true, planPath: await resolvePlanPath(ctx) };
-      persist();
-      const seed = buildImplementationSeed(state);
-      if (state.previousTools?.length) pi.setActiveTools(state.previousTools);
-
-      await ctx.newSession({
-        parentSession: ctx.sessionManager.getSessionFile(),
-        setup: async (sm: any) => {
-          sm.appendMessage({
-            role: "user",
-            content: [{ type: "text", text: seed }],
-            timestamp: Date.now(),
-          });
-        },
-        withSession: async (newCtx) => {
-          renderTodos(newCtx, state);
-          await newCtx.sendUserMessage("Implement the approved plan. Start with step 1 and use [DONE:n] markers as each step is completed.");
-        },
-      });
-    },
-  });
-
-  pi.registerCommand("plan-cancel", {
-    description: "Cancel Cockpit plan execution tracking and restore previous tools",
-    handler: async (_args, ctx) => {
-      state = { active: false, executionMode: false, todos: [], previousTools: state.previousTools };
-      if (state.previousTools?.length) pi.setActiveTools(state.previousTools);
-      persist();
-      renderTodos(ctx, state);
-      pi.events.emit("cockpit:mode:switch", { id: "edit" });
-      ctx.ui.notify("Plan mode cancelled", "info");
-    },
   });
 }

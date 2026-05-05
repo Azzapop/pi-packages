@@ -248,6 +248,8 @@ class CockpitFooter implements Component {
 }
 
 class CockpitEditor extends CustomEditor {
+  private modeBorderColor: (s: string) => string;
+
   constructor(
     tui: TUI,
     editorTheme: EditorTheme,
@@ -258,6 +260,8 @@ class CockpitEditor extends CustomEditor {
     private getActiveMode: () => CockpitMode,
   ) {
     super(tui, editorTheme, keybindings, { paddingX: 2 });
+    this.modeBorderColor = (s: string) => this.appTheme.fg("muted", s);
+    this.borderColor = this.modeBorderColor;
   }
 
   override setPaddingX(_padding: number) {
@@ -265,16 +269,26 @@ class CockpitEditor extends CustomEditor {
     super.setPaddingX(2);
   }
 
-  private currentBorderColor(): (s: string) => string {
+  private updateBorderColor(): void {
     const text = this.getText().trimStart();
     const mode = this.getActiveMode();
-    if (mode.id === "terminal" || text.startsWith("!")) return this.appTheme.getBashModeBorderColor();
-    if (mode.id === "plan") return (s: string) => this.appTheme.fg("warning", s);
-    return (s: string) => this.appTheme.fg("muted", s);
+    if (mode.id === "terminal" || text.startsWith("!")) {
+      this.modeBorderColor = this.appTheme.getBashModeBorderColor();
+    } else if (mode.id === "plan") {
+      this.modeBorderColor = (s: string) => this.appTheme.fg("warning", s);
+    } else {
+      this.modeBorderColor = (s: string) => this.appTheme.fg("muted", s);
+    }
+    this.borderColor = this.modeBorderColor;
+  }
+
+  override invalidate(): void {
+    this.borderColor = this.modeBorderColor;
+    super.invalidate();
   }
 
   render(width: number): string[] {
-    this.borderColor = this.currentBorderColor();
+    this.updateBorderColor();
     const lines = super.render(width);
     if (!lines.length) return lines;
 
@@ -592,6 +606,43 @@ export default function (pi: ExtensionAPI) {
 
       pi.setThinkingLevel?.(value as ThinkingLevel);
       ctx.ui.notify(`Effort: ${value}`, "info");
+    },
+  });
+
+  pi.registerCommand("clear", {
+    description: "Clear all context and session state across all extensions",
+    handler: async (_args, ctx) => {
+      currentCtx = ctx;
+      const entries = ctx.sessionManager.getEntries();
+      if (!entries.length) {
+        ctx.ui.notify("Nothing to clear — session is empty.", "info");
+        return;
+      }
+
+      const usage = ctx.getContextUsage?.();
+      const percent = usage?.percent == null ? undefined : Number(usage.percent);
+      const usageText = percent != null ? ` (context: ${Math.round(percent)}%)` : "";
+      const confirmed = await ctx.ui.confirm(`Clear all context and extension state?${usageText} This cannot be undone.`);
+      if (!confirmed) {
+        ctx.ui.notify("Clear cancelled.", "info");
+        return;
+      }
+
+      const lastEntry = entries[entries.length - 1];
+      ctx.sessionManager.appendCompaction(
+        "Context cleared by user.",
+        lastEntry.id,
+        usage?.tokensUsed ?? 0,
+        undefined,
+        false,
+      );
+
+      state.manualTitle = undefined;
+      state.autoTitle = "";
+      state.titleCleared = true;
+
+      pi.events.emit("cockpit:clear", { source: "command" });
+      ctx.ui.notify("Context, title, and state cleared.", "info");
     },
   });
 
