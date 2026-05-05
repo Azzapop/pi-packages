@@ -187,15 +187,12 @@ class CockpitFooter implements Component {
     }
 
     const contextUsage = ctx?.getContextUsage?.();
-    if (contextUsage) {
-      const percent = contextUsage.percent == null ? undefined : Number(contextUsage.percent);
-      const contextText = percent == null
-        ? `${icons.loading} --% ${percentBar(0)}`
-        : `${Math.round(percent)}% ${percentBar(percent)}`;
-      const color = percent == null ? "muted" : colorForPercent(percent);
-      leftSegments.push(`${icon(icons.context)} ${this.theme.fg(color, contextText)}`);
+    if (contextUsage?.percent != null) {
+      const percent = Number(contextUsage.percent);
+      const contextText = `${Math.round(percent)}% ${percentBar(percent)}`;
+      leftSegments.push(`${icon(icons.context)} ${this.theme.fg(colorForPercent(percent), contextText)}`);
     } else {
-      leftSegments.push(`${icon(icons.context)} ${loading} --% ${this.theme.fg("dim", percentBar(0))}`);
+      leftSegments.push(`${icon(icons.context)} ${this.theme.fg("dim", `--% ${percentBar(0)}`)}`);
     }
 
     const usage = state.usage;
