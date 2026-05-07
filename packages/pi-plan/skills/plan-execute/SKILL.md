@@ -29,12 +29,24 @@ If any precondition is missing, ask the user instead of editing.
 ## Workflow
 
 1. Restate the approved plan source briefly.
-2. Execute steps sequentially.
+2. Execute steps sequentially, treating each numbered step as a separate checkpoint.
 3. Do not skip steps silently.
 4. Validate after meaningful changes.
-5. After completing step `n`, include `[DONE:n]` in your response.
-6. If the plan becomes invalid, pause and explain why before continuing.
-7. At the end, summarize completed steps and validation results.
+5. After completing step `n`, immediately include `[DONE:n]` in your response before starting any later step.
+6. You may continue automatically to the next step only after the prior step has been marked with its `[DONE:n]` marker.
+7. If the plan becomes invalid, pause and explain why before continuing.
+8. At the end, summarize completed steps and validation results.
+
+## Progress and Resume Commands
+
+Use compact plan UI by default. For detailed progress, prefer commands instead of relying on the persistent widget:
+
+- `/plan-list` shows saved in-progress plans from `planPath`.
+- `/plan-open <number|path>` loads a saved plan into the current session.
+- `/plan-current` shows the next incomplete step.
+- `/plan-status` shows grouped completed/next/remaining progress.
+- `/plan-todos` shows the full checklist on demand.
+- `/plan-next` or `/plan-resume` continues from the first incomplete step.
 
 ## Progress Markers
 
@@ -46,13 +58,14 @@ Use exact markers so extensions can track progress:
 [DONE:3]
 ```
 
-Only emit `[DONE:n]` after step `n` is actually complete.
+Only emit `[DONE:n]` after step `n` is actually complete. Emit one marker per completed step so progress can be persisted and resumed later. Do not batch multiple completed steps without their individual markers.
 
 ## Safety
 
 - Do not edit before verifying approval.
 - Stay within the approved scope.
 - If implementation reveals a materially different approach is needed, stop and request plan revision.
+- Preserve durable progress by marking each completed step before continuing or pausing.
 - Preserve user changes and avoid destructive commands unless explicitly approved.
 
 ## Output Format
