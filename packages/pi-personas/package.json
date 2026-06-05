@@ -1,8 +1,8 @@
 {
-  "name": "pi-packages-repo-tools",
+  "name": "pi-personas",
   "version": "0.1.0",
   "private": true,
-  "description": "Pi tools and skills for maintaining this pi-packages repository.",
+  "description": "Pluggable persona presets (architect, qa, reviewer, debugger) for pi-cockpit.",
   "keywords": [
     "pi-package"
   ],
@@ -12,8 +12,8 @@
     "extensions": [
       "./extensions"
     ],
-    "skills": [
-      "./skills"
+    "prompts": [
+      "./prompts"
     ]
   },
   "peerDependencies": {

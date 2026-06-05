@@ -379,7 +379,7 @@ export default function (pi: ExtensionAPI) {
 
   // ── Event listeners (registered once at load time) ──
 
-  // Respond to state queries from other packages (e.g. pi-mode-plan)
+  // Respond to state queries from other packages or extensions
   pi.events.on("plan:request-state", () => {
     pi.events.emit("plan:state", getState());
   });
@@ -421,11 +421,11 @@ export default function (pi: ExtensionAPI) {
     persist();
     renderWidget(ctx, state, widgetMode);
 
-    // Emit event so other packages (pi-mode-plan) can react or override the approval flow
+    // Emit event so other packages can react or override the approval flow
     const draftEvent = { rawPlan, todos, title: state.title, handled: false };
     pi.events.emit("plan:draft", draftEvent);
 
-    // If another package (e.g. pi-mode-plan) handled the approval UI, skip ours
+    // If another package handled the approval UI, skip ours
     if (draftEvent.handled) return;
 
     // Standalone approval flow

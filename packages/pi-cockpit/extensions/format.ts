@@ -27,6 +27,38 @@ export function formatCost(cost: number): string {
   return `$${Math.round(cost)}`;
 }
 
+// Read token/cost counters from a message usage object.
+// pi-coding-agent normalizes adapters (including amazon-bedrock) to
+// { input, output, cacheRead, cacheWrite, cost: { total } }; the extra
+// fallbacks below are defensive for third-party adapters that might
+// use provider-native field names. Cost is intentionally not synthesized
+// when absent — pricing belongs in the adapter, not the statusline.
+export function readUsage(usage: unknown): {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  cost: number;
+} {
+  const empty = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
+  if (!usage || typeof usage !== "object") return empty;
+  const u = usage as Record<string, unknown>;
+  const num = (...candidates: unknown[]): number => {
+    for (const c of candidates) {
+      if (typeof c === "number" && Number.isFinite(c)) return c;
+    }
+    return 0;
+  };
+  const costObj = (u.cost && typeof u.cost === "object") ? (u.cost as Record<string, unknown>) : undefined;
+  return {
+    input: num(u.input, u.inputTokens, u.promptTokens, u.prompt_tokens),
+    output: num(u.output, u.outputTokens, u.completionTokens, u.completion_tokens),
+    cacheRead: num(u.cacheRead, u.cacheReadInputTokens, u.cache_read_input_tokens),
+    cacheWrite: num(u.cacheWrite, u.cacheWriteInputTokens, u.cache_creation_input_tokens),
+    cost: num(costObj?.total, typeof u.cost === "number" ? u.cost : undefined, u.totalCost),
+  };
+}
+
 export function clampPercent(value: number): number {
   if (!Number.isFinite(value)) return 0;
   return Math.max(0, Math.min(100, Math.round(value)));
@@ -78,11 +110,12 @@ export function providerLabel(provider: string | undefined): string {
     case "google-antigravity":
       return "Antigravity";
     default:
-      return provider || "usage";
+      if (provider && provider.trim().length > 0) return titleCaseWords(provider);
+      return "usage";
   }
 }
 
-function titleCaseWords(value: string): string {
+export function titleCaseWords(value: string): string {
   return value
     .split(/[\s-]+/)
     .filter(Boolean)

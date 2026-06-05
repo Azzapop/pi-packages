@@ -2,7 +2,7 @@
   "name": "pi-cockpit",
   "version": "0.1.0",
   "private": true,
-  "description": "Cockpit-style footer, editor title bar, and working indicator for Pi.",
+  "description": "Cockpit-style footer, editor title bar, persona host, and working indicator for Pi.",
   "keywords": [
     "pi-package"
   ],

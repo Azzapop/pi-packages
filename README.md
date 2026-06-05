@@ -8,9 +8,9 @@ A container repository for personal, domain-based Pi packages. Each package unde
 packages/
   inventory/                 Pi inventory/resource inspection commands
   themes/                    Personal TUI themes
-  pi-cockpit/                Cockpit-style Pi footer/editor UI
+  pi-cockpit/                Cockpit-style Pi footer/editor UI + persona host
+  pi-personas/               Pluggable persona presets (architect, qa, reviewer, debugger)
   pi-plan/                   Reusable planning skills, prompts, and helpers
-  pi-mode-plan/              Cockpit plan mode integration
   pi-packages-repo-tools/    Tools and skills for maintaining this repo
 ```
 
@@ -57,16 +57,17 @@ Select a theme in `/settings` or add one to `~/.pi/agent/settings.json`:
 
 ### pi-cockpit
 
-Provides a cockpit-style Pi TUI skin.
+Provides a cockpit-style Pi TUI skin and the persona host. Personas inject role-specific system-prompt context for every turn while active; switching swaps that context with no residue (history is preserved).
 
 Included resources:
 
-- Extension commands: `/session-title`, `/effort`
-- `Shift+Tab` Cockpit mode cycling; `Ctrl+Shift+E` model effort cycling
+- Extension commands: `/session-title`, `/effort`, `/persona`
+- `Shift+Tab` persona cycling; `Ctrl+Shift+E` model effort cycling
 - Custom footer with context, provider usage, model/effort, branch, and low-priority session totals
-- Custom editor title bar and mode-colored editor border
+- Custom editor title bar and persona-colored editor border
 - Subtle pulse working indicator
 - Bundled `pi-usage-bars` extension for provider usage windows
+- Built-in `default` persona (no extra context). Install [`pi-personas`](#pi-personas) for the bundled presets.
 
 Install globally:
 
@@ -90,6 +91,27 @@ Use Nerd Font icons by default, or switch fallbacks:
 pi -e /Users/aaron/src/pi-packages/packages/pi-cockpit --cockpit-icons unicode
 pi -e /Users/aaron/src/pi-packages/packages/pi-cockpit --cockpit-icons none
 ```
+
+### pi-personas
+
+Pluggable persona presets for `pi-cockpit`. Each persona is a small declarative object whose `systemPrompt` is appended to the system prompt every turn while active.
+
+Bundled presets:
+
+- `architect` — software architect, design-first, surveys code, articulates trade-offs
+- `qa` — QA engineer, adversarial review, edge cases, error/boundary/concurrency analysis
+- `reviewer` — code reviewer, diff-focused, naming, dead code, layering, API stability
+- `debugger` — debugger, reproduce-first, isolate-first, hypothesis-driven
+
+Cycle with **Shift+Tab**, or use `/persona`, `/persona list`, `/persona next`, `/persona <id>`. The active persona is persisted per session.
+
+Install globally:
+
+```bash
+pi install /Users/aaron/src/pi-packages/packages/pi-personas
+```
+
+See [`packages/pi-personas/README.md`](packages/pi-personas/README.md) for the persona contract and instructions on authoring custom personas.
 
 ### pi-plan
 
@@ -117,23 +139,6 @@ Install globally:
 pi install /Users/aaron/src/pi-packages/packages/pi-plan
 ```
 
-### pi-mode-plan
-
-Provides Cockpit integration for plan mode.
-
-Included resources:
-
-- Cockpit mode: `plan` via `/mode plan`
-- Extension commands: `/plan-approve`, `/plan-cancel`
-- Plan-mode tool restrictions that block edits and unsafe shell commands before approval
-- Approval flow that starts implementation in a new context seeded with the approved plan
-
-Install globally:
-
-```bash
-pi install /Users/aaron/src/pi-packages/packages/pi-mode-plan
-```
-
 ### pi-packages-repo-tools
 
 Provides tools specifically for maintaining this `pi-packages` repository.
@@ -142,6 +147,7 @@ Included resources:
 
 - Extension command: `/pi-packages-info`
 - Skills: `repo-maintenance`, `package-creator`
+- Persona: `pi-author` — Pi package author, fluent in extension API and repo conventions
 
 This package is installed by the repo-local `.pi/settings.json`. Project package paths are resolved from the `.pi/` directory, so the path uses `../packages/...`:
 
@@ -160,14 +166,10 @@ Run Pi with a package for a single session:
 pi -e /Users/aaron/src/pi-packages/packages/inventory
 pi -e /Users/aaron/src/pi-packages/packages/themes
 pi -e /Users/aaron/src/pi-packages/packages/pi-cockpit
+pi -e /Users/aaron/src/pi-packages/packages/pi-personas
 pi -e /Users/aaron/src/pi-packages/packages/pi-plan
-pi -e /Users/aaron/src/pi-packages/packages/pi-mode-plan
 pi -e /Users/aaron/src/pi-packages/packages/pi-packages-repo-tools
 ```
-
-## Design Docs
-
-- [Cockpit Modes Plugin Plan](docs/cockpit-modes/README.md) — phased plan for making `pi-cockpit` a pluggable mode host.
 
 ## Adding more
 

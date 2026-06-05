@@ -18,6 +18,7 @@ import {
   kebabCaseTitle,
   percentBar,
   providerLabel,
+  readUsage,
   sanitizeOneLine,
   summarizePrompt,
   thinkingColor,
@@ -43,16 +44,40 @@ type CockpitState = {
   usage?: UsageUpdate;
 };
 
-type CockpitMode = {
+// ── Persona contract ────────────────────────────────────────────────────────
+//
+// A persona injects role-specific context into the system prompt for every
+// turn while it is active, and is automatically *not* injected when another
+// persona (or the default) is active. Switching personas swaps context with
+// no residue because the system prompt is rebuilt every turn.
+//
+// Satellite packages (e.g. pi-personas) register personas by emitting
+// `cockpit:persona:register` with a Persona object.
+
+export type Persona = {
   id: string;
   label: string;
-  icon?: string;
   description?: string;
+  icon?: string;
   order?: number;
-  onEnter?: (ctx: ExtensionContext) => void | Promise<void>;
-  onExit?: (ctx: ExtensionContext) => void | Promise<void>;
+
+  // Appended to the system prompt every turn while this persona is active.
+  // Returning empty string or undefined skips injection.
+  systemPrompt?: string | ((ctx: ExtensionContext) => string | Promise<string | undefined>) | undefined;
+
+  // Optional editor border tint while active.
+  borderColor?: (theme: Theme) => (s: string) => string;
+
+  // Optional tool allowlist; snapshot+restore on enter/exit.
+  tools?: string[];
+
+  // Footer hooks.
   getFooterSegments?: (ctx: ExtensionContext) => string[];
   getStatusText?: (ctx: ExtensionContext) => string | undefined;
+
+  // Lifecycle hooks.
+  onEnter?: (ctx: ExtensionContext) => void | Promise<void>;
+  onExit?: (ctx: ExtensionContext) => void | Promise<void>;
   onInput?: (event: any, ctx: ExtensionContext) => any | Promise<any>;
   beforeAgentStart?: (event: any, ctx: ExtensionContext) => any | Promise<any>;
 };
@@ -60,11 +85,11 @@ type CockpitMode = {
 const EXTENSION_NAME = "pi-cockpit";
 const DEFAULT_TITLE = "";
 const SEGMENT_SEPARATOR = " │ ";
-const MODE_STATE_ENTRY = "cockpit-mode";
-const EDIT_MODE: CockpitMode = {
-  id: "edit",
-  label: "Edit",
-  description: "Normal Pi editing mode",
+const PERSONA_STATE_ENTRY = "cockpit-persona";
+const DEFAULT_PERSONA: Persona = {
+  id: "default",
+  label: "Default",
+  description: "No persona context — standard Pi behavior",
   order: 0,
 };
 
@@ -72,35 +97,55 @@ function getTitle(state: CockpitState): string {
   return state.manualTitle || state.autoTitle || "";
 }
 
-function isCockpitMode(value: unknown): value is CockpitMode {
+function isPersona(value: unknown): value is Persona {
   if (!value || typeof value !== "object") return false;
-  const mode = value as CockpitMode;
-  return typeof mode.id === "string" && mode.id.trim().length > 0 && typeof mode.label === "string" && mode.label.trim().length > 0;
+  const persona = value as Persona;
+  return (
+    typeof persona.id === "string" &&
+    persona.id.trim().length > 0 &&
+    typeof persona.label === "string" &&
+    persona.label.trim().length > 0
+  );
 }
 
-function formatMode(mode: CockpitMode, ctx?: ExtensionContext): string {
-  const status = ctx ? mode.getStatusText?.(ctx) : undefined;
+function formatPersona(persona: Persona, ctx?: ExtensionContext): string {
+  const status = ctx ? persona.getStatusText?.(ctx) : undefined;
   if (status) return sanitizeOneLine(status);
-  return sanitizeOneLine(mode.label.toLowerCase());
+  return sanitizeOneLine(persona.label.toLowerCase());
 }
 
-function sortedModes(modes: Map<string, CockpitMode>): CockpitMode[] {
-  return [...modes.values()].sort((a, b) => (a.order ?? 1000) - (b.order ?? 1000) || a.label.localeCompare(b.label));
+function sortedPersonas(personas: Map<string, Persona>): Persona[] {
+  return [...personas.values()].sort(
+    (a, b) => (a.order ?? 1000) - (b.order ?? 1000) || a.label.localeCompare(b.label),
+  );
 }
 
-function getSessionTotals(ctx: any): { input: number; output: number; cost: number } {
-  let input = 0;
-  let output = 0;
-  let cost = 0;
+// Sum per-message usage across the session. pi-coding-agent normalizes
+// adapters (including amazon-bedrock) to
+// { input, output, cacheRead, cacheWrite, cost: { total } }; readUsage adds
+// defensive coalescing for third-party adapters that might use
+// provider-native field names. Cost is intentionally not synthesized when
+// absent — pricing belongs in the adapter, not the statusline.
+function getSessionTotals(ctx: any): {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  cost: number;
+} {
+  const totals = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
 
   for (const entry of ctx.sessionManager.getEntries()) {
     if (entry?.type !== "message" || entry.message?.role !== "assistant") continue;
-    input += entry.message.usage?.input ?? 0;
-    output += entry.message.usage?.output ?? 0;
-    cost += entry.message.usage?.cost?.total ?? 0;
+    const u = readUsage(entry.message.usage);
+    totals.input += u.input;
+    totals.output += u.output;
+    totals.cacheRead += u.cacheRead;
+    totals.cacheWrite += u.cacheWrite;
+    totals.cost += u.cost;
   }
 
-  return { input, output, cost };
+  return totals;
 }
 
 function buildTitleLine(width: number, title: string, theme: Theme, borderColor: (s: string) => string): string {
@@ -157,7 +202,7 @@ class CockpitFooter implements Component {
     private getState: () => CockpitState,
     private getIconStyle: () => IconStyle,
     private getThinkingLevel: () => ThinkingLevel | string | undefined,
-    private getActiveMode: () => CockpitMode,
+    private getActivePersona: () => Persona,
   ) {
     this.unsubBranch = footerData.onBranchChange(() => this.tui.requestRender());
     setGitUpdateCallback(() => this.tui.requestRender());
@@ -177,11 +222,14 @@ class CockpitFooter implements Component {
     const rightSegments: string[] = [];
 
     const icon = (text: string) => this.theme.fg("borderAccent", text);
-    const loading = icon(icons.loading);
-    const activeMode = this.getActiveMode();
-    leftSegments.push(activeMode.id === "edit" ? this.theme.fg("text", formatMode(activeMode, ctx)) : this.theme.fg("accent", formatMode(activeMode, ctx)));
+    const activePersona = this.getActivePersona();
+    leftSegments.push(
+      activePersona.id === DEFAULT_PERSONA.id
+        ? this.theme.fg("text", formatPersona(activePersona, ctx))
+        : this.theme.fg("accent", formatPersona(activePersona, ctx)),
+    );
     if (ctx) {
-      for (const segment of activeMode.getFooterSegments?.(ctx) ?? []) {
+      for (const segment of activePersona.getFooterSegments?.(ctx) ?? []) {
         if (segment) leftSegments.push(sanitizeOneLine(segment));
       }
     }
@@ -195,6 +243,11 @@ class CockpitFooter implements Component {
       leftSegments.push(`${icon(icons.context)} ${this.theme.fg("dim", `--% ${percentBar(0)}`)}`);
     }
 
+    // Subscription gauge: rendered only when usage data is present
+    // (emitted by pi-usage-bars for providers with session/weekly quotas).
+    // Pay-per-token providers (amazon-bedrock, openai, google-vertex, …)
+    // never populate this, so the segment stays hidden rather than
+    // showing a misleading placeholder.
     const usage = state.usage;
     if (usage?.session != null) {
       const session = clampPercent(usage.session);
@@ -206,9 +259,6 @@ class CockpitFooter implements Component {
       leftSegments.push(
         `${icon(icons.usage)} ${provider} ${icon("S")} ${this.theme.fg(colorForPercent(session), `${session}%`)}${reset}${weekly}`,
       );
-    } else {
-      const provider = providerLabel(ctx?.model?.provider);
-      leftSegments.push(`${icon(icons.usage)} ${provider} ${icon("S")} ${loading}--% ${icon(icons.reset)} --`);
     }
 
     const modelName = formatModelName(ctx?.model);
@@ -231,13 +281,12 @@ class CockpitFooter implements Component {
     if (statuses.length) leftSegments.push(this.theme.fg("dim", statuses.join(" ")));
 
     const totals = getSessionTotals(ctx);
-    if (totals.input || totals.output || totals.cost) {
-      leftSegments.push(
-        this.theme.fg(
-          "text",
-          `${icons.tokens ? `${icons.tokens} ` : ""}↑${formatTokens(totals.input)} ↓${formatTokens(totals.output)} ${formatCost(totals.cost)}`,
-        ),
-      );
+    if (totals.input || totals.output || totals.cost || totals.cacheRead) {
+      const prefix = icons.tokens ? `${icons.tokens} ` : "";
+      const tokens = `↑${formatTokens(totals.input)} ↓${formatTokens(totals.output)}`;
+      const cache = totals.cacheRead > 0 ? ` ${icons.cache}${formatTokens(totals.cacheRead)}` : "";
+      const cost = totals.cost > 0 ? ` ${formatCost(totals.cost)}` : "";
+      leftSegments.push(this.theme.fg("text", `${prefix}${tokens}${cache}${cost}`));
     }
 
     return [` ${fitSplitSegments(leftSegments, rightSegments, width - 2)} `, ""];
@@ -245,7 +294,7 @@ class CockpitFooter implements Component {
 }
 
 class CockpitEditor extends CustomEditor {
-  private modeBorderColor: (s: string) => string;
+  private personaBorderColor: (s: string) => string;
 
   constructor(
     tui: TUI,
@@ -254,11 +303,11 @@ class CockpitEditor extends CustomEditor {
     private appTheme: Theme,
     private getTitle: () => string,
     private getThinkingLevel: () => ThinkingLevel | string | undefined,
-    private getActiveMode: () => CockpitMode,
+    private getActivePersona: () => Persona,
   ) {
     super(tui, editorTheme, keybindings, { paddingX: 2 });
-    this.modeBorderColor = (s: string) => this.appTheme.fg("muted", s);
-    this.borderColor = this.modeBorderColor;
+    this.personaBorderColor = (s: string) => this.appTheme.fg("muted", s);
+    this.borderColor = this.personaBorderColor;
   }
 
   override setPaddingX(_padding: number) {
@@ -268,19 +317,18 @@ class CockpitEditor extends CustomEditor {
 
   private updateBorderColor(): void {
     const text = this.getText().trimStart();
-    const mode = this.getActiveMode();
-    if (mode.id === "terminal" || text.startsWith("!")) {
-      this.modeBorderColor = this.appTheme.getBashModeBorderColor();
-    } else if (mode.id === "plan") {
-      this.modeBorderColor = (s: string) => this.appTheme.fg("warning", s);
+    const persona = this.getActivePersona();
+    if (text.startsWith("!")) {
+      this.personaBorderColor = this.appTheme.getBashModeBorderColor();
     } else {
-      this.modeBorderColor = (s: string) => this.appTheme.fg("muted", s);
+      const fromPersona = persona.borderColor?.(this.appTheme);
+      this.personaBorderColor = fromPersona ?? ((s: string) => this.appTheme.fg("muted", s));
     }
-    this.borderColor = this.modeBorderColor;
+    this.borderColor = this.personaBorderColor;
   }
 
   override invalidate(): void {
-    this.borderColor = this.modeBorderColor;
+    this.borderColor = this.personaBorderColor;
     super.invalidate();
   }
 
@@ -296,14 +344,15 @@ class CockpitEditor extends CustomEditor {
 
 export default function (pi: ExtensionAPI) {
   const state: CockpitState = { autoTitle: DEFAULT_TITLE };
-  const modes = new Map<string, CockpitMode>([[EDIT_MODE.id, EDIT_MODE]]);
-  let activeModeId = EDIT_MODE.id;
-  let pendingRestoreModeId: string | undefined;
+  const personas = new Map<string, Persona>([[DEFAULT_PERSONA.id, DEFAULT_PERSONA]]);
+  let activePersonaId = DEFAULT_PERSONA.id;
+  let pendingRestorePersonaId: string | undefined;
+  let previousToolsSnapshot: string[] | undefined;
   let currentCtx: any;
   let unsubscribeUsage: (() => void) | undefined;
-  let unsubscribeModeRegister: (() => void) | undefined;
-  let unsubscribeModeSwitch: (() => void) | undefined;
-  let unsubscribeModeNext: (() => void) | undefined;
+  let unsubscribePersonaRegister: (() => void) | undefined;
+  let unsubscribePersonaSwitch: (() => void) | undefined;
+  let unsubscribePersonaNext: (() => void) | undefined;
 
   pi.registerFlag("cockpit-icons", {
     description: "Pi Cockpit icon style: nerd, unicode, or none",
@@ -313,99 +362,133 @@ export default function (pi: ExtensionAPI) {
 
   const getIconStyle = () => normalizeIconStyle(pi.getFlag("cockpit-icons"));
   const getThinkingLevel = () => pi.getThinkingLevel?.();
-  const getActiveMode = () => modes.get(activeModeId) ?? EDIT_MODE;
+  const getActivePersona = () => personas.get(activePersonaId) ?? DEFAULT_PERSONA;
 
-  function persistMode(): void {
-    pi.appendEntry(MODE_STATE_ENTRY, { activeMode: activeModeId });
+  function persistPersona(): void {
+    pi.appendEntry(PERSONA_STATE_ENTRY, { activePersona: activePersonaId });
   }
 
-  function updateModeUi(ctx: ExtensionContext): void {
+  function updatePersonaUi(ctx: ExtensionContext): void {
     if (!ctx.hasUI) return;
-    // The active mode is rendered by the Cockpit footer itself. Clear any
-    // previous status entry to avoid duplicate mode labels in the status bar.
-    ctx.ui.setStatus("pi-cockpit-mode", undefined);
+    // The active persona is rendered by the Cockpit footer itself. Clear any
+    // previous status entry to avoid duplicate persona labels in the status bar.
+    ctx.ui.setStatus("pi-cockpit-persona", undefined);
   }
 
-  function registerMode(mode: CockpitMode): void {
-    if (!isCockpitMode(mode)) {
-      currentCtx?.ui?.notify?.("Ignored invalid cockpit mode registration", "warning");
+  function registerPersona(persona: Persona): void {
+    if (!isPersona(persona)) {
+      currentCtx?.ui?.notify?.("Ignored invalid persona registration", "warning");
       return;
     }
 
-    const normalized = { ...mode, id: mode.id.trim(), label: mode.label.trim() };
-    modes.set(normalized.id, normalized);
+    const normalized = { ...persona, id: persona.id.trim(), label: persona.label.trim() };
+    personas.set(normalized.id, normalized);
 
-    if (pendingRestoreModeId === normalized.id && currentCtx) {
-      pendingRestoreModeId = undefined;
-      void switchMode(currentCtx, normalized.id, { persist: false, notify: false });
+    if (pendingRestorePersonaId === normalized.id && currentCtx) {
+      pendingRestorePersonaId = undefined;
+      void switchPersona(currentCtx, normalized.id, { persist: false, notify: false });
     }
   }
 
-  async function switchMode(ctx: ExtensionContext, targetModeId: string, options: { persist?: boolean; notify?: boolean } = {}): Promise<boolean> {
-    const target = modes.get(targetModeId);
+  async function switchPersona(
+    ctx: ExtensionContext,
+    targetPersonaId: string,
+    options: { persist?: boolean; notify?: boolean } = {},
+  ): Promise<boolean> {
+    const target = personas.get(targetPersonaId);
     if (!target) {
-      ctx.ui.notify(`Unknown cockpit mode: ${targetModeId}. Available: ${sortedModes(modes).map((m) => m.id).join(", ")}`, "warning");
+      ctx.ui.notify(
+        `Unknown persona: ${targetPersonaId}. Available: ${sortedPersonas(personas)
+          .map((p) => p.id)
+          .join(", ")}`,
+        "warning",
+      );
       return false;
     }
 
-    const previousId = activeModeId;
+    const previousId = activePersonaId;
     if (previousId === target.id) {
-      updateModeUi(ctx);
+      updatePersonaUi(ctx);
       return true;
     }
 
-    const previous = getActiveMode();
+    const previous = getActivePersona();
     try {
       await previous.onExit?.(ctx);
     } catch (error) {
-      ctx.ui.notify(`Cockpit mode ${previous.id} exit failed: ${error instanceof Error ? error.message : String(error)}`, "warning");
+      ctx.ui.notify(
+        `Persona ${previous.id} exit failed: ${error instanceof Error ? error.message : String(error)}`,
+        "warning",
+      );
     }
 
-    activeModeId = target.id;
+    // Restore tool allowlist captured when the previous persona entered.
+    if (previous.tools && previousToolsSnapshot) {
+      pi.setActiveTools(previousToolsSnapshot);
+    }
+    previousToolsSnapshot = undefined;
+
+    activePersonaId = target.id;
     try {
+      // Snapshot active tools before persona-driven override, so we can restore on exit.
+      if (target.tools) {
+        previousToolsSnapshot = pi.getActiveTools?.();
+        pi.setActiveTools(target.tools);
+      }
       await target.onEnter?.(ctx);
     } catch (error) {
-      activeModeId = previousId;
-      ctx.ui.notify(`Cockpit mode ${target.id} enter failed: ${error instanceof Error ? error.message : String(error)}`, "error");
+      activePersonaId = previousId;
+      // Best-effort restore of previous persona's tools.
+      if (target.tools && previousToolsSnapshot) {
+        pi.setActiveTools(previousToolsSnapshot);
+        previousToolsSnapshot = undefined;
+      }
+      ctx.ui.notify(
+        `Persona ${target.id} enter failed: ${error instanceof Error ? error.message : String(error)}`,
+        "error",
+      );
       try {
         await previous.onEnter?.(ctx);
       } catch {
         // Best-effort restore only.
       }
-      updateModeUi(ctx);
+      updatePersonaUi(ctx);
       return false;
     }
 
-    if (options.persist !== false) persistMode();
-    updateModeUi(ctx);
-    pi.events.emit("cockpit:mode:changed", { previousMode: previousId, activeMode: activeModeId });
-    if (options.notify !== false) ctx.ui.notify(`Cockpit mode: ${formatMode(target, ctx)}`, "info");
+    if (options.persist !== false) persistPersona();
+    updatePersonaUi(ctx);
+    pi.events.emit("cockpit:persona:changed", {
+      previousPersona: previousId,
+      activePersona: activePersonaId,
+    });
+    if (options.notify !== false) ctx.ui.notify(`Persona: ${formatPersona(target, ctx)}`, "info");
     return true;
   }
 
-  async function switchToNextMode(ctx: ExtensionContext): Promise<void> {
-    const ordered = sortedModes(modes);
-    const index = Math.max(0, ordered.findIndex((mode) => mode.id === activeModeId));
-    const next = ordered[(index + 1) % ordered.length] ?? EDIT_MODE;
-    await switchMode(ctx, next.id);
+  async function switchToNextPersona(ctx: ExtensionContext): Promise<void> {
+    const ordered = sortedPersonas(personas);
+    const index = Math.max(0, ordered.findIndex((persona) => persona.id === activePersonaId));
+    const next = ordered[(index + 1) % ordered.length] ?? DEFAULT_PERSONA;
+    await switchPersona(ctx, next.id);
   }
 
-  async function restoreModeFromSession(ctx: ExtensionContext): Promise<void> {
+  async function restorePersonaFromSession(ctx: ExtensionContext): Promise<void> {
     const entries = ctx.sessionManager.getEntries();
-    const modeEntry = entries
-      .filter((entry: any) => entry?.type === "custom" && entry.customType === MODE_STATE_ENTRY)
-      .pop() as { data?: { activeMode?: string } } | undefined;
-    const restored = modeEntry?.data?.activeMode;
-    if (!restored || restored === EDIT_MODE.id) {
-      activeModeId = EDIT_MODE.id;
-      pendingRestoreModeId = undefined;
+    const personaEntry = entries
+      .filter((entry: any) => entry?.type === "custom" && entry.customType === PERSONA_STATE_ENTRY)
+      .pop() as { data?: { activePersona?: string } } | undefined;
+    const restored = personaEntry?.data?.activePersona;
+    if (!restored || restored === DEFAULT_PERSONA.id) {
+      activePersonaId = DEFAULT_PERSONA.id;
+      pendingRestorePersonaId = undefined;
       return;
     }
-    if (modes.has(restored)) {
-      await switchMode(ctx, restored, { persist: false, notify: false });
+    if (personas.has(restored)) {
+      await switchPersona(ctx, restored, { persist: false, notify: false });
     } else {
-      activeModeId = EDIT_MODE.id;
-      pendingRestoreModeId = restored;
+      activePersonaId = DEFAULT_PERSONA.id;
+      pendingRestorePersonaId = restored;
     }
   }
 
@@ -424,38 +507,60 @@ export default function (pi: ExtensionAPI) {
     });
 
     ctx.ui.setFooter((tui: TUI, theme: Theme, footerData: ReadonlyFooterDataProvider) =>
-      new CockpitFooter(tui, theme, footerData, () => currentCtx, () => state, getIconStyle, getThinkingLevel, getActiveMode),
+      new CockpitFooter(
+        tui,
+        theme,
+        footerData,
+        () => currentCtx,
+        () => state,
+        getIconStyle,
+        getThinkingLevel,
+        getActivePersona,
+      ),
     );
 
     ctx.ui.setEditorComponent((tui: TUI, editorTheme: EditorTheme, keybindings: KeybindingsManager) =>
-      new CockpitEditor(tui, editorTheme, keybindings, ctx.ui.theme, () => getTitle(state), getThinkingLevel, getActiveMode),
+      new CockpitEditor(
+        tui,
+        editorTheme,
+        keybindings,
+        ctx.ui.theme,
+        () => getTitle(state),
+        getThinkingLevel,
+        getActivePersona,
+      ),
     );
 
-    updateModeUi(ctx);
+    updatePersonaUi(ctx);
   }
 
-  function formatModeList(ctx: ExtensionContext): string {
-    return sortedModes(modes)
-      .map((mode) => `${mode.id === activeModeId ? "*" : " "} ${formatMode(mode, ctx)} (${mode.id})${mode.description ? ` - ${mode.description}` : ""}`)
+  function formatPersonaList(ctx: ExtensionContext): string {
+    return sortedPersonas(personas)
+      .map(
+        (persona) =>
+          `${persona.id === activePersonaId ? "*" : " "} ${formatPersona(persona, ctx)} (${persona.id})${
+            persona.description ? ` - ${persona.description}` : ""
+          }`,
+      )
       .join("\n");
   }
 
-  registerMode(EDIT_MODE);
+  registerPersona(DEFAULT_PERSONA);
 
-  unsubscribeModeRegister = pi.events.on("cockpit:mode:register", (mode: unknown) => {
-    registerMode(mode as CockpitMode);
-    if (currentCtx) updateModeUi(currentCtx);
+  unsubscribePersonaRegister = pi.events.on("cockpit:persona:register", (persona: unknown) => {
+    registerPersona(persona as Persona);
+    if (currentCtx) updatePersonaUi(currentCtx);
   });
 
-  unsubscribeModeSwitch = pi.events.on("cockpit:mode:switch", (data: unknown) => {
+  unsubscribePersonaSwitch = pi.events.on("cockpit:persona:switch", (data: unknown) => {
     const id = typeof data === "string" ? data : (data as { id?: unknown } | undefined)?.id;
     if (typeof id !== "string") return;
-    if (currentCtx) void switchMode(currentCtx, id);
-    else if (modes.has(id)) activeModeId = id;
+    if (currentCtx) void switchPersona(currentCtx, id);
+    else if (personas.has(id)) activePersonaId = id;
   });
 
-  unsubscribeModeNext = pi.events.on("cockpit:mode:next", () => {
-    if (currentCtx) void switchToNextMode(currentCtx);
+  unsubscribePersonaNext = pi.events.on("cockpit:persona:next", () => {
+    if (currentCtx) void switchToNextPersona(currentCtx);
   });
 
   unsubscribeUsage = pi.events.on("usage:update", (data: unknown) => {
@@ -466,20 +571,23 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("session_start", async (_event, ctx) => {
     installUi(ctx);
-    await restoreModeFromSession(ctx);
-    updateModeUi(ctx);
-    pi.events.emit("cockpit:ready", { activeMode: activeModeId, modes: sortedModes(modes).map((mode) => mode.id) });
+    await restorePersonaFromSession(ctx);
+    updatePersonaUi(ctx);
+    pi.events.emit("cockpit:ready", {
+      activePersona: activePersonaId,
+      personas: sortedPersonas(personas).map((persona) => persona.id),
+    });
   });
 
   pi.on("session_shutdown", async (_event, ctx) => {
     unsubscribeUsage?.();
     unsubscribeUsage = undefined;
-    unsubscribeModeRegister?.();
-    unsubscribeModeRegister = undefined;
-    unsubscribeModeSwitch?.();
-    unsubscribeModeSwitch = undefined;
-    unsubscribeModeNext?.();
-    unsubscribeModeNext = undefined;
+    unsubscribePersonaRegister?.();
+    unsubscribePersonaRegister = undefined;
+    unsubscribePersonaSwitch?.();
+    unsubscribePersonaSwitch = undefined;
+    unsubscribePersonaNext?.();
+    unsubscribePersonaNext = undefined;
     resetGitCache();
 
     if (ctx?.hasUI) {
@@ -491,7 +599,7 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("input", async (event, ctx) => {
     currentCtx = ctx;
-    return getActiveMode().onInput?.(event, ctx);
+    return getActivePersona().onInput?.(event, ctx);
   });
 
   pi.on("before_agent_start", async (event, ctx) => {
@@ -501,7 +609,32 @@ export default function (pi: ExtensionAPI) {
       state.autoTitle = summarizePrompt(event.prompt ?? "");
     }
 
-    return getActiveMode().beforeAgentStart?.(event, ctx);
+    const persona = getActivePersona();
+
+    // Inject persona system prompt for every turn while active.
+    // Switching personas swaps context with no residue because we rebuild
+    // the system prompt on every turn from the currently-active persona only.
+    let systemPrompt: string | undefined;
+    if (persona.id !== DEFAULT_PERSONA.id && persona.systemPrompt) {
+      const resolved =
+        typeof persona.systemPrompt === "function"
+          ? await persona.systemPrompt(ctx)
+          : persona.systemPrompt;
+      if (typeof resolved === "string" && resolved.trim().length > 0) {
+        systemPrompt = `${event.systemPrompt}\n\n${resolved}`;
+      }
+    }
+
+    // Allow personas to apply additional changes via their own hook; merge results.
+    const extra = await persona.beforeAgentStart?.(
+      systemPrompt ? { ...event, systemPrompt } : event,
+      ctx,
+    );
+
+    if (extra && typeof extra === "object") {
+      return systemPrompt ? { systemPrompt, ...extra } : extra;
+    }
+    return systemPrompt ? { systemPrompt } : undefined;
   });
 
   pi.on("turn_start", async (_event, ctx) => {
@@ -521,17 +654,17 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.registerShortcut("shift+tab", {
-    description: "Cycle cockpit mode",
+    description: "Cycle persona",
     handler: async (ctx) => {
       currentCtx = ctx;
-      await switchToNextMode(ctx);
+      await switchToNextPersona(ctx);
     },
   });
 
-  pi.registerCommand("mode", {
-    description: "Show or switch Pi Cockpit modes",
+  pi.registerCommand("persona", {
+    description: "Show or switch Pi Cockpit personas",
     getArgumentCompletions: (prefix: string) => {
-      const values = ["list", "status", "next", ...sortedModes(modes).map((mode) => mode.id)];
+      const values = ["list", "status", "next", ...sortedPersonas(personas).map((persona) => persona.id)];
       return values
         .filter((value) => value.startsWith(prefix.trim()))
         .map((value) => ({ value, label: value }));
@@ -542,32 +675,34 @@ export default function (pi: ExtensionAPI) {
 
       if (!value) {
         const labels = new Map<string, string>();
-        const choices = sortedModes(modes).map((mode) => {
-          const label = `${formatMode(mode, ctx)} (${mode.id})${mode.description ? ` - ${mode.description}` : ""}`;
-          labels.set(label, mode.id);
+        const choices = sortedPersonas(personas).map((persona) => {
+          const label = `${formatPersona(persona, ctx)} (${persona.id})${
+            persona.description ? ` - ${persona.description}` : ""
+          }`;
+          labels.set(label, persona.id);
           return label;
         });
-        const selected = await ctx.ui.select("Cockpit mode", choices);
-        if (selected) await switchMode(ctx, labels.get(selected) ?? selected);
+        const selected = await ctx.ui.select("Persona", choices);
+        if (selected) await switchPersona(ctx, labels.get(selected) ?? selected);
         return;
       }
 
       if (value === "list") {
-        ctx.ui.notify(`Cockpit modes:\n${formatModeList(ctx)}`, "info");
+        ctx.ui.notify(`Personas:\n${formatPersonaList(ctx)}`, "info");
         return;
       }
 
       if (value === "status") {
-        ctx.ui.notify(`Cockpit mode: ${formatMode(getActiveMode(), ctx)}`, "info");
+        ctx.ui.notify(`Persona: ${formatPersona(getActivePersona(), ctx)}`, "info");
         return;
       }
 
       if (value === "next") {
-        await switchToNextMode(ctx);
+        await switchToNextPersona(ctx);
         return;
       }
 
-      await switchMode(ctx, value);
+      await switchPersona(ctx, value);
     },
   });
 

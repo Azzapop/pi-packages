@@ -1,0 +1,21 @@
+{
+  "name": "pi-bedrock-mantle",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pi provider extension for Amazon Bedrock Mantle (OpenAI Responses API on Bedrock).",
+  "keywords": ["pi-package"],
+  "license": "UNLICENSED",
+  "type": "module",
+  "pi": {
+    "extensions": ["./extensions"]
+  },
+  "dependencies": {
+    "@aws-crypto/sha256-js": "^5.2.0",
+    "@aws-sdk/credential-provider-node": "^3.0.0",
+    "@smithy/signature-v4": "^5.0.0"
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": "*",
+    "@mariozechner/pi-ai": "*"
+  }
+}
