@@ -28,6 +28,7 @@ type RequestFrontmatter = {
 
 type RequestStatus = {
   status: "pending" | "running" | "done" | "failed";
+  title?: string | null;
   pid?: number | null;
   pi_pid?: number | null;
   branch?: string | null;
@@ -454,6 +455,7 @@ async function handleShow(args: string, ctx: ExtensionContext, root: RepoRoot): 
     `Origin:    ${rec.frontmatter.origin_cwd ?? "(unknown)"}`,
     `Status:    ${rec.status.status}`,
   ];
+  if (rec.status.title) lines.push(`Title:     ${rec.status.title}`);
   if (rec.status.branch) lines.push(`Branch:    ${rec.status.branch}`);
   if (rec.status.pid) lines.push(`Pid:       ${rec.status.pid}`);
   if (rec.status.started_at) lines.push(`Started:   ${rec.status.started_at}`);

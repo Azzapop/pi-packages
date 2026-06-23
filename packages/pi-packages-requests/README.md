@@ -20,6 +20,21 @@ Configure the repo path once in `~/.pi/agent/settings.json` so the extension kno
 
 If unset, the extension will walk up from the current directory looking for `packages/pi-packages-repo-tools`, and finally fall back to `~/src/pi-packages`.
 
+### Session title model (optional)
+
+Each dispatched run names its `pi` session after a short, human-readable title generated from the request body by a cheap model (instead of the old mechanical `req:<id>` slug). By default it uses your configured default model with thinking off. To keep this cheap, point it at a small/fast model via either:
+
+- the `PI_PACKAGES_TITLE_MODEL` environment variable, or
+- `piPackagesTitleModel` in `~/.pi/agent/settings.json`:
+
+```json
+{
+  "piPackagesTitleModel": "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+}
+```
+
+If title generation fails for any reason, the run falls back to the `req:<id>` name. The generated title is also recorded in `<id>.status.json` and shown by `/pi-req show`.
+
 ## Commands
 
 | Command | What it does |
@@ -41,7 +56,7 @@ Inside the repo:
 ```text
 requests/
   <id>.md            # immutable: frontmatter (id, created, target, origin_cwd) + body
-  <id>.status.json   # mutable: status, pid, branch, started_at, finished_at, exit_code, commit
+  <id>.status.json   # mutable: status, title, pid, branch, started_at, finished_at, exit_code, commit
   <id>.log           # captured stdout+stderr of the dispatched pi run
   .lock              # present while a request is running (contains the running id)
 ```
@@ -52,7 +67,7 @@ requests/
 
 1. `/pi-req` writes `<id>.md` and `<id>.status.json` with `status: pending`.
 2. It acquires `requests/.lock` atomically. If the lock is held, the request stays `pending` and you can dispatch it later (planned: `/pi-req run <id>`).
-3. It spawns `node dispatch/run.mjs <id> <repoRoot> <preamblePath>` detached, with stdout/stderr ignored. The runner cuts `req/<id>` from current `HEAD`, runs `pi -p --append-system-prompt @execution-preamble.md "<body>"` with cwd set to the repo, captures all output to `<id>.log`, then commits any changes on the branch and writes the final status.
+3. It spawns `node dispatch/run.mjs <id> <repoRoot> <preamblePath>` detached, with stdout/stderr ignored. The runner cuts `req/<id>` from current `HEAD`, generates a short session title from the body via a cheap model, runs `pi -p --append-system-prompt @execution-preamble.md --name "req: <title>" "<body>"` with cwd set to the repo, captures all output to `<id>.log`, then commits any changes on the branch and writes the final status.
 4. You check on the run from anywhere with `/pi-req list`, `/pi-req log`, or `/pi-req tail`.
 
 The dispatched pi inherits this repo's `.pi/settings.json`, so it automatically loads `pi-packages-repo-tools` (with its `repo-maintenance` and `package-creator` skills). The execution preamble in `dispatch/execution-preamble.md` adds non-interactive-run-specific guidance.
