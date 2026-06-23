@@ -12,6 +12,7 @@ packages/
   pi-personas/               Pluggable persona presets (architect, qa, reviewer, debugger)
   pi-plan/                   Reusable planning skills, prompts, and helpers
   pi-packages-repo-tools/    Tools and skills for maintaining this repo
+  pi-packages-requests/      /pi-req: file change requests against this repo from anywhere
 ```
 
 The repository root is not itself a Pi package. Install the individual domain packages you want.
@@ -158,6 +159,34 @@ This package is installed by the repo-local `.pi/settings.json`. Project package
 }
 ```
 
+### pi-packages-requests
+
+File change requests against this repo from any pi session anywhere on your machine. `/pi-req` writes the request to `requests/<id>.md` and dispatches a detached headless `pi -p` run inside the repo to actually make the change on a fresh `req/<id>` branch. The runner survives the parent pi session exiting; you check on it later with `/pi-req list`, `/pi-req log <id>`, or `/pi-req tail <id>`.
+
+Included resources:
+
+- Extension command: `/pi-req` with subcommands `list`, `show`, `log`, `tail`, `done`, `reap`
+- Skill: `requests-inbox` for triaging queued requests when you sit down inside the repo
+- Dispatch assets: `dispatch/run.mjs` (orchestrator) and `dispatch/execution-preamble.md` (system-prompt addendum for non-interactive runs)
+
+Configure the repo path once in `~/.pi/agent/settings.json` so the command can find the repo from any cwd:
+
+```json
+{
+  "piPackagesRoot": "/Users/aaron/src/pi-packages"
+}
+```
+
+If unset, the extension walks up from the current directory looking for `packages/pi-packages-repo-tools` and falls back to `~/src/pi-packages`.
+
+Install globally:
+
+```bash
+pi install /Users/aaron/src/pi-packages/packages/pi-packages-requests
+```
+
+See [`packages/pi-packages-requests/README.md`](packages/pi-packages-requests/README.md) for the full command reference, on-disk layout, and dispatch lifecycle.
+
 ## Try without installing
 
 Run Pi with a package for a single session:
@@ -169,6 +198,7 @@ pi -e /Users/aaron/src/pi-packages/packages/pi-cockpit
 pi -e /Users/aaron/src/pi-packages/packages/pi-personas
 pi -e /Users/aaron/src/pi-packages/packages/pi-plan
 pi -e /Users/aaron/src/pi-packages/packages/pi-packages-repo-tools
+pi -e /Users/aaron/src/pi-packages/packages/pi-packages-requests
 ```
 
 ## Adding more

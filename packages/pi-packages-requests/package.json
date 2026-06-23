@@ -1,0 +1,22 @@
+{
+  "name": "pi-packages-requests",
+  "version": "0.1.0",
+  "private": true,
+  "description": "On-the-fly change requests for the pi-packages repo. /pi-req captures a request to disk and dispatches a headless pi run inside the repo to fulfil it.",
+  "keywords": [
+    "pi-package"
+  ],
+  "license": "UNLICENSED",
+  "type": "module",
+  "pi": {
+    "extensions": [
+      "./extensions"
+    ],
+    "skills": [
+      "./skills"
+    ]
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": "*"
+  }
+}
