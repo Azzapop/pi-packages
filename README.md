@@ -13,6 +13,7 @@ packages/
   pi-plan/                   Reusable planning skills, prompts, and helpers
   pi-packages-repo-tools/    Tools and skills for maintaining this repo
   pi-packages-requests/      /pi-req: file change requests against this repo from anywhere
+  pi-feature-flags/          Skill to register new feature flags on the Propeller FFR Jira board
 ```
 
 The repository root is not itself a Pi package. Install the individual domain packages you want.
@@ -187,6 +188,24 @@ pi install /Users/aaron/src/pi-packages/packages/pi-packages-requests
 
 See [`packages/pi-packages-requests/README.md`](packages/pi-packages-requests/README.md) for the full command reference, on-disk layout, and dispatch lifecycle.
 
+### pi-feature-flags
+
+Registers new feature flags on Propeller's Feature Flag Register Jira board (project `FFR`, board 84) when a new LaunchDarkly flag is needed as part of some work.
+
+Included resources:
+
+- Skill: `new-feature-flag` — creates a `Feature Flag` ticket via the Atlassian MCP server, building the board's standard LaunchDarkly Production/Test description and linking back to the originating work item.
+
+Requires the Atlassian MCP server to be connected in the session.
+
+Install globally:
+
+```bash
+pi install /Users/aaron/src/pi-packages/packages/pi-feature-flags
+```
+
+See [`packages/pi-feature-flags/README.md`](packages/pi-feature-flags/README.md) for board facts and usage.
+
 ## Try without installing
 
 Run Pi with a package for a single session:
@@ -199,6 +218,7 @@ pi -e /Users/aaron/src/pi-packages/packages/pi-personas
 pi -e /Users/aaron/src/pi-packages/packages/pi-plan
 pi -e /Users/aaron/src/pi-packages/packages/pi-packages-repo-tools
 pi -e /Users/aaron/src/pi-packages/packages/pi-packages-requests
+pi -e /Users/aaron/src/pi-packages/packages/pi-feature-flags
 ```
 
 ## Adding more
