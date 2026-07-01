@@ -1,10 +1,12 @@
 {
-  "status": "running",
+  "status": "done",
   "pid": 96389,
   "branch": "req/2026-06-24-1516-add-a-new-package-with-a-skill-to-make-a-new-featu",
   "started_at": "2026-06-24T05:16:15.364Z",
-  "exit_code": null,
-  "finished_at": null,
+  "exit_code": 0,
+  "finished_at": "2026-06-24T05:19:49.894Z",
   "title": "Add feature flag skill package",
-  "pi_pid": 96622
+  "pi_pid": 96622,
+  "signal": null,
+  "commit": "3d3c2c8d39c273cbbb88a716f104d857a5ca9ed2"
 }
